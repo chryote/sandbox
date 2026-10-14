@@ -1,0 +1,43 @@
+[gd_scene load_steps=8 format=3 uid="uid://80nsttbaqo7q"]
+
+[ext_resource type="Script" uid="uid://hty7p4vu6bjd" path="res://modules/world/management/chunk_manager.gd" id="1_chunkmgr"]
+[ext_resource type="PackedScene" uid="uid://dfvx4ykvfnc1q" path="res://scenes/player/tps_player.tscn" id="2_player"]
+[ext_resource type="PackedScene" uid="uid://bpxg3iyvwwft1" path="res://UI/crosshair.tscn" id="3_crosshair"]
+[ext_resource type="PackedScene" uid="uid://dkq5jcx67sbfg" path="res://UI/debug_overlay.tscn" id="4_debug"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_sky"]
+sky_top_color = Color(0.38, 0.65, 0.98, 1)
+sky_horizon_color = Color(0.65, 0.8, 0.95, 1)
+ground_bottom_color = Color(0.2, 0.22, 0.25, 1)
+ground_horizon_color = Color(0.65, 0.8, 0.95, 1)
+
+[sub_resource type="Sky" id="Sky_env"]
+sky_material = SubResource("ProceduralSkyMaterial_sky")
+
+[sub_resource type="Environment" id="Environment_main"]
+background_mode = 2
+sky = SubResource("Sky_env")
+ambient_light_source = 3
+ambient_light_color = Color(0.6, 0.65, 0.7, 1)
+tonemap_mode = 2
+
+[node name="Main" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_main")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 40, 0)
+shadow_enabled = true
+
+[node name="ChunkManager" type="Node3D" parent="."]
+script = ExtResource("1_chunkmgr")
+
+[node name="TPSPlayer" parent="." instance=ExtResource("2_player")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 8, 25, 8)
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Crosshair" parent="UI" instance=ExtResource("3_crosshair")]
+
+[node name="DebugOverlay" parent="UI" instance=ExtResource("4_debug")]

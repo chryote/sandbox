@@ -1,0 +1,35 @@
+[gd_scene load_steps=6 format=3 uid="uid://worldsandboxscene01"]
+
+[ext_resource type="Script" path="res://modules/world/management/chunk_manager.gd" id="1_chunkmgr"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_world"]
+sky_top_color = Color(0.38, 0.65, 0.98, 1)
+sky_horizon_color = Color(0.65, 0.8, 0.95, 1)
+ground_bottom_color = Color(0.2, 0.22, 0.25, 1)
+ground_horizon_color = Color(0.65, 0.8, 0.95, 1)
+
+[sub_resource type="Sky" id="Sky_world"]
+sky_material = SubResource("ProceduralSkyMaterial_world")
+
+[sub_resource type="Environment" id="Environment_world"]
+background_mode = 2
+sky = SubResource("Sky_world")
+ambient_light_source = 3
+ambient_light_color = Color(0.6, 0.65, 0.7, 1)
+tonemap_mode = 2
+
+[node name="WorldSandbox" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_world")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 0, 40, 0)
+shadow_enabled = true
+
+[node name="ChunkManager" type="Node3D" parent="."]
+script = ExtResource("1_chunkmgr")
+
+[node name="OverviewCamera" type="Camera3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 25, 35, 25)
+current = true

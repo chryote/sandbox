@@ -1,0 +1,32 @@
+class_name WorldGenConfig
+extends Resource
+
+## -----------------------------------------------------------------------------
+## Configuration Properties
+## -----------------------------------------------------------------------------
+@export var world_seed: int = Constants.DEFAULT_WORLD_SEED
+@export var chunk_dimensions: Vector3i = Constants.CHUNK_SIZE_VOXELS
+@export var load_radius_chunks: int = Constants.DEFAULT_LOAD_RADIUS_CHUNKS
+
+@export var noise_frequency: float = Constants.DEFAULT_NOISE_FREQUENCY
+@export var noise_fractal_octaves: int = Constants.DEFAULT_NOISE_OCTAVES
+@export var noise_fractal_lacunarity: float = Constants.DEFAULT_NOISE_LACUNARITY
+@export var noise_fractal_gain: float = Constants.DEFAULT_NOISE_GAIN
+
+@export var primary_biome: BiomeDefinition = null
+
+func _init() -> void:
+	if primary_biome == null:
+		primary_biome = BiomeDefinition.new()
+
+## Creates and returns a freshly configured FastNoiseLite instance based on this configuration.
+func create_configured_noise() -> FastNoiseLite:
+	var noise: FastNoiseLite = FastNoiseLite.new()
+	noise.seed = world_seed
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	noise.frequency = noise_frequency
+	noise.fractal_octaves = noise_fractal_octaves
+	noise.fractal_lacunarity = noise_fractal_lacunarity
+	noise.fractal_gain = noise_fractal_gain
+	return noise
