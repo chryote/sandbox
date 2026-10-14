@@ -13,6 +13,9 @@ extends Resource
 @export var noise_fractal_lacunarity: float = Constants.DEFAULT_NOISE_LACUNARITY
 @export var noise_fractal_gain: float = Constants.DEFAULT_NOISE_GAIN
 
+@export var enable_smoothing: bool = true
+@export var enable_terrace_shaping: bool = true
+
 @export var primary_biome: BiomeDefinition = null
 
 func _init() -> void:

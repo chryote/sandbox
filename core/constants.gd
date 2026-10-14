@@ -573,10 +573,10 @@ const DEFAULT_LOAD_RADIUS_CHUNKS: int = 2
 const DEFAULT_TERRAIN_BASE_HEIGHT: int = 10
 const DEFAULT_TERRAIN_HEIGHT_VARIATION: int = 12
 const DEFAULT_DIRT_LAYER_THICKNESS: int = 3
-const DEFAULT_NOISE_FREQUENCY: float = 0.035
-const DEFAULT_NOISE_OCTAVES: int = 3
+const DEFAULT_NOISE_FREQUENCY: float = 0.01
+const DEFAULT_NOISE_OCTAVES: int = 2
 const DEFAULT_NOISE_LACUNARITY: float = 2.0
-const DEFAULT_NOISE_GAIN: float = 0.5
+const DEFAULT_NOISE_GAIN: float = 0.2
 
 ## -----------------------------------------------------------------------------
 ## Third-Person Shooter (TPS) Controller & Camera Metrics

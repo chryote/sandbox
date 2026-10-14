@@ -25,9 +25,30 @@ func _init(p_config: WorldGenConfig = null) -> void:
 ## Computes the clamped terrain surface height for any world (x, z) coordinate.
 func get_terrain_height_at(world_x: int, world_z: int) -> int:
 	var biome: BiomeDefinition = config.primary_biome
-	var raw_noise: float = noise.get_noise_2d(float(world_x), float(world_z))
+	var raw_noise: float = 0.0
+
+	if config.enable_smoothing:
+		# 5-point cross continuous smoothing kernel: averages micro-ripples across neighbor coordinates
+		var center: float = noise.get_noise_2d(float(world_x), float(world_z))
+		var neighbors: float = (
+			noise.get_noise_2d(float(world_x - 1), float(world_z)) +
+			noise.get_noise_2d(float(world_x + 1), float(world_z)) +
+			noise.get_noise_2d(float(world_x), float(world_z - 1)) +
+			noise.get_noise_2d(float(world_x), float(world_z + 1))
+		) * 0.25
+		raw_noise = center * 0.5 + neighbors * 0.5
+	else:
+		raw_noise = noise.get_noise_2d(float(world_x), float(world_z))
+
 	var normalized_noise: float = (raw_noise + NOISE_NORMALIZATION_OFFSET) * NOISE_NORMALIZATION_HALF
-	var target_height: int = biome.base_elevation_voxels + floori(normalized_noise * float(biome.elevation_amplitude_voxels))
+
+	var height_factor: float = normalized_noise
+	if config.enable_terrace_shaping:
+		# S-curve (smoothstep) to flatten hilltops and valley floors into wide terraces
+		var t: float = clampf(normalized_noise, 0.0, 1.0)
+		height_factor = t * t * (3.0 - 2.0 * t)
+
+	var target_height: int = biome.base_elevation_voxels + floori(height_factor * float(biome.elevation_amplitude_voxels))
 	var max_y: int = Constants.CHUNK_HEIGHT_VOXELS - 1
 	return clampi(target_height, BEDROCK_LAYER_Y, max_y)
 
@@ -67,10 +88,27 @@ func _get_inner_corner_block_id(surface_base_id: int, corner_offset: int) -> int
 		_:
 			return surface_base_id
 
-## Resolves whether a surface voxel should be a standard flat cube, straight ramp, or outer corner.
+## Resolves the registered ramp block ID for a given cardinal direction offset.
+func _get_ramp_block_id(surface_base_id: int, shape_offset: int) -> int:
+	match surface_base_id:
+		Constants.BLOCK_ID_GRASS:
+			return Constants.BLOCK_ID_GRASS_RAMP_NORTH + shape_offset
+		Constants.BLOCK_ID_SAND:
+			return Constants.BLOCK_ID_SAND_RAMP_NORTH + shape_offset
+		Constants.BLOCK_ID_STONE:
+			return Constants.BLOCK_ID_STONE_RAMP_NORTH + shape_offset
+		Constants.BLOCK_ID_DIRT:
+			return Constants.BLOCK_ID_DIRT_RAMP_NORTH + shape_offset
+		_:
+			return surface_base_id
+
+## Resolves whether a surface voxel should be a standard flat cube or straight ramp.
+## Diagonal slope steps with 2 perpendicular drops align with the dominant downhill gradient
+## to create flush, continuous ramps rather than jagged outward teeth.
 func _resolve_surface_block_id(
 	surface_base_id: int,
-	diff_n: int, diff_s: int, diff_e: int, diff_w: int
+	diff_n: int, diff_s: int, diff_e: int, diff_w: int,
+	world_x: int = 0, world_z: int = 0
 ) -> int:
 	# Conflicting opposite drops (ridge or peak): keep full block
 	if (diff_n == -1 and diff_s == -1) or (diff_e == -1 and diff_w == -1):
@@ -87,43 +125,26 @@ func _resolve_surface_block_id(
 
 	# Single drop: standard directional ramp
 	if drops.size() == 1:
-		var shape_offset: int = drops[0]
-		match surface_base_id:
-			Constants.BLOCK_ID_GRASS:
-				return Constants.BLOCK_ID_GRASS_RAMP_NORTH + shape_offset
-			Constants.BLOCK_ID_SAND:
-				return Constants.BLOCK_ID_SAND_RAMP_NORTH + shape_offset
-			Constants.BLOCK_ID_STONE:
-				return Constants.BLOCK_ID_STONE_RAMP_NORTH + shape_offset
-			Constants.BLOCK_ID_DIRT:
-				return Constants.BLOCK_ID_DIRT_RAMP_NORTH + shape_offset
-			_:
-				return surface_base_id
+		return _get_ramp_block_id(surface_base_id, drops[0])
 
-	# Exactly 2 perpendicular drops: convex outer corner slope
+	# Exactly 2 perpendicular drops (diagonal hillside step):
+	# Align with the dominant downhill gradient instead of placing a jagged triangular prism tooth.
 	if drops.size() == 2:
-		var corner_offset: int = -1
-		if 1 in drops and 2 in drops:
-			corner_offset = 0 # South & East drop -> high at NW (OUTER_CORNER_NORTH_WEST)
-		elif 1 in drops and 3 in drops:
-			corner_offset = 1 # South & West drop -> high at NE (OUTER_CORNER_NORTH_EAST)
-		elif 0 in drops and 2 in drops:
-			corner_offset = 2 # North & East drop -> high at SW (OUTER_CORNER_SOUTH_WEST)
-		elif 0 in drops and 3 in drops:
-			corner_offset = 3 # North & West drop -> high at SE (OUTER_CORNER_SOUTH_EAST)
+		var drop_z: int = -1
+		var drop_x: int = -1
+		for d: int in drops:
+			if d == 0 or d == 1:
+				drop_z = d
+			elif d == 2 or d == 3:
+				drop_x = d
 
-		if corner_offset != -1:
-			match surface_base_id:
-				Constants.BLOCK_ID_GRASS:
-					return Constants.BLOCK_ID_GRASS_OUTER_CORNER_NW + corner_offset
-				Constants.BLOCK_ID_SAND:
-					return Constants.BLOCK_ID_SAND_OUTER_CORNER_NW + corner_offset
-				Constants.BLOCK_ID_STONE:
-					return Constants.BLOCK_ID_STONE_OUTER_CORNER_NW + corner_offset
-				Constants.BLOCK_ID_DIRT:
-					return Constants.BLOCK_ID_DIRT_OUTER_CORNER_NW + corner_offset
-				_:
-					return surface_base_id
+		if drop_z != -1 and drop_x != -1 and noise != null:
+			var grad_z: float = absf(noise.get_noise_2d(float(world_x), float(world_z + 1)) - noise.get_noise_2d(float(world_x), float(world_z - 1)))
+			var grad_x: float = absf(noise.get_noise_2d(float(world_x + 1), float(world_z)) - noise.get_noise_2d(float(world_x - 1), float(world_z)))
+			var chosen_drop: int = drop_z if grad_z >= grad_x else drop_x
+			return _get_ramp_block_id(surface_base_id, chosen_drop)
+		else:
+			return _get_ramp_block_id(surface_base_id, drops[0])
 
 	# 3 or more drops: keep full block
 	return surface_base_id
@@ -193,7 +214,8 @@ func generate_chunk_data(chunk_data: ChunkData) -> void:
 					else:
 						var surface_block_id: int = _resolve_surface_block_id(
 							biome.surface_block_id,
-							diff_n, diff_s, diff_e, diff_w
+							diff_n, diff_s, diff_e, diff_w,
+							world_x, world_z
 						)
 						chunk_data.set_block(local_pos, surface_block_id)
 				elif y > (clamped_height - biome.subsurface_depth_layers):
