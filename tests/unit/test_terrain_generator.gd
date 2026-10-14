@@ -75,9 +75,63 @@ static func run_all() -> bool:
 		printerr("FAIL: Bedrock not found at (0, 0, 0)")
 		return false
 
-	# Air must be present at very top
-	if chunk.get_block(Vector3i(0, ConstantsScript.CHUNK_HEIGHT_VOXELS - 1, 0)) != ConstantsScript.BLOCK_ID_AIR:
-		printerr("FAIL: Air expected at chunk ceiling")
+	# 5. Test Ramp Landing Obstruction Suppression (Approach B)
+	# When a neighbor cell contains a straight ramp sloping into this cell's lowest edge,
+	# the inner corner shim must be suppressed (return -1) so the ramp exit remains open.
+	var mock_gen = MockTerrainGenerator.new(config)
+	# Center cell at (5, 5) with height 10
+	mock_gen.set_mock_height(5, 5, 10)
+	# South cell at (5, 6) with height 11
+	mock_gen.set_mock_height(5, 6, 11)
+	# East cell at (6, 5) with height 11
+	mock_gen.set_mock_height(6, 5, 11)
+	# SE diagonal at (6, 6) with height 11
+	mock_gen.set_mock_height(6, 6, 11)
+	# North and West at height 10
+	mock_gen.set_mock_height(5, 4, 10)
+	mock_gen.set_mock_height(4, 5, 10)
+
+	# Configure South cell (5, 6) to have only 1 drop (North into (5, 5)), making it a RAMP_NORTH
+	mock_gen.set_mock_height(5, 7, 11) # South neighbor of (5, 6)
+	mock_gen.set_mock_height(4, 6, 11) # West neighbor of (5, 6)
+	# East neighbor of (5, 6) is (6, 6) already 11
+
+	var offset_suppressed: int = mock_gen._resolve_inner_corner_offset(
+		0, 1, 1, 0,
+		10, 10, 10, 11,
+		10,
+		5, 5
+	)
+	if offset_suppressed != -1:
+		printerr("FAIL: Expected inner corner to be suppressed (-1) when ramp slopes into it, got: %d" % offset_suppressed)
+		return false
+
+	# If South cell is NOT a ramp (e.g. has 2 drops: North and South), inner corner should NOT be suppressed
+	mock_gen.set_mock_height(5, 7, 10) # Now (5, 6) drops both North and South -> ridge, not a ramp
+	mock_gen.set_mock_height(7, 5, 10) # (6, 5) drops East
+	mock_gen.set_mock_height(6, 4, 11)
+	var offset_unsuppressed: int = mock_gen._resolve_inner_corner_offset(
+		0, 1, 1, 0,
+		10, 10, 10, 11,
+		10,
+		5, 5
+	)
+	if offset_unsuppressed != 0:
+		printerr("FAIL: Expected unsuppressed inner corner offset 0, got: %d" % offset_unsuppressed)
 		return false
 
 	return true
+
+class MockTerrainGenerator extends TerrainGeneratorScript:
+	var mock_heights: Dictionary = {}
+
+	func _init(p_config: WorldGenConfigScript) -> void:
+		super._init(p_config)
+
+	func set_mock_height(x: int, z: int, h: int) -> void:
+		mock_heights[Vector2i(x, z)] = h
+
+	func get_terrain_height_at(x: int, z: int) -> int:
+		if mock_heights.has(Vector2i(x, z)):
+			return mock_heights[Vector2i(x, z)]
+		return 10

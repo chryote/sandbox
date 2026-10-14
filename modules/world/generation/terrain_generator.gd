@@ -52,24 +52,65 @@ func get_terrain_height_at(world_x: int, world_z: int) -> int:
 	var max_y: int = Constants.CHUNK_HEIGHT_VOXELS - 1
 	return clampi(target_height, BEDROCK_LAYER_Y, max_y)
 
-## Resolves whether an empty voxel at clamped_height + 1 is an inside corner bridging two perpendicular ramps.
+## Checks whether the cell at (cell_x, cell_z) resolves to a straight directional ramp
+## whose downhill slope points in target_drop direction (0=North, 1=South, 2=East, 3=West).
+func _is_cell_ramp_facing(cell_x: int, cell_z: int, target_drop: int) -> bool:
+	var h_cell: int = get_terrain_height_at(cell_x, cell_z)
+	var dn: int = get_terrain_height_at(cell_x, cell_z - 1) - h_cell
+	var ds: int = get_terrain_height_at(cell_x, cell_z + 1) - h_cell
+	var de: int = get_terrain_height_at(cell_x + 1, cell_z) - h_cell
+	var dw: int = get_terrain_height_at(cell_x - 1, cell_z) - h_cell
+
+	# Conflicting opposite drops (ridge or peak): full cube, not a ramp
+	if (dn == -1 and ds == -1) or (de == -1 and dw == -1):
+		return false
+
+	var drop_count: int = 0
+	var single_drop: int = -1
+	if dn == -1:
+		drop_count += 1
+		single_drop = 0
+	if ds == -1:
+		drop_count += 1
+		single_drop = 1
+	if de == -1:
+		drop_count += 1
+		single_drop = 2
+	if dw == -1:
+		drop_count += 1
+		single_drop = 3
+
+	return drop_count == 1 and single_drop == target_drop
+
+## Resolves whether an empty voxel at clamped_height + 1 is an inside corner bridging two higher terrace walls.
+## Suppresses inner corner placement if an adjacent higher neighbor contains a straight ramp sloping into this cell,
+## preventing the ramp's lowest edge from being blocked by the inner corner's back wall.
 func _resolve_inner_corner_offset(
 	diff_n: int, diff_s: int, diff_e: int, diff_w: int,
 	h_nw: int, h_ne: int, h_sw: int, h_se: int,
-	clamped_height: int
+	clamped_height: int,
+	world_x: int = 0, world_z: int = 0
 ) -> int:
 	var h: int = clamped_height
-	# NW low (South & East ramps higher)
+	# NW low (South & East higher)
 	if diff_s >= 1 and diff_e >= 1 and h_se >= h + 1 and diff_n <= 0 and diff_w <= 0:
+		if _is_cell_ramp_facing(world_x, world_z + 1, 0) or _is_cell_ramp_facing(world_x + 1, world_z, 3):
+			return -1
 		return 0 # INNER_CORNER_NORTH_WEST
-	# NE low (South & West ramps higher)
+	# NE low (South & West higher)
 	if diff_s >= 1 and diff_w >= 1 and h_sw >= h + 1 and diff_n <= 0 and diff_e <= 0:
+		if _is_cell_ramp_facing(world_x, world_z + 1, 0) or _is_cell_ramp_facing(world_x - 1, world_z, 2):
+			return -1
 		return 1 # INNER_CORNER_NORTH_EAST
-	# SW low (North & East ramps higher)
+	# SW low (North & East higher)
 	if diff_n >= 1 and diff_e >= 1 and h_ne >= h + 1 and diff_s <= 0 and diff_w <= 0:
+		if _is_cell_ramp_facing(world_x, world_z - 1, 1) or _is_cell_ramp_facing(world_x + 1, world_z, 3):
+			return -1
 		return 2 # INNER_CORNER_SOUTH_WEST
-	# SE low (North & West ramps higher)
+	# SE low (North & West higher)
 	if diff_n >= 1 and diff_w >= 1 and h_nw >= h + 1 and diff_s <= 0 and diff_e <= 0:
+		if _is_cell_ramp_facing(world_x, world_z - 1, 1) or _is_cell_ramp_facing(world_x - 1, world_z, 2):
+			return -1
 		return 3 # INNER_CORNER_SOUTH_EAST
 
 	return -1
@@ -167,7 +208,8 @@ func generate_chunk_data(chunk_data: ChunkData) -> void:
 				inner_offset = _resolve_inner_corner_offset(
 					diff_n, diff_s, diff_e, diff_w,
 					h_nw, h_ne, h_sw, h_se,
-					clamped_height
+					clamped_height,
+					world_x, world_z
 				)
 
 			var has_inner_corner: bool = (inner_offset != -1)
