@@ -127,26 +127,8 @@ func _resolve_surface_block_id(
 	if drops.size() == 1:
 		return _get_ramp_block_id(surface_base_id, drops[0])
 
-	# Exactly 2 perpendicular drops (diagonal hillside step):
-	# Align with the dominant downhill gradient instead of placing a jagged triangular prism tooth.
-	if drops.size() == 2:
-		var drop_z: int = -1
-		var drop_x: int = -1
-		for d: int in drops:
-			if d == 0 or d == 1:
-				drop_z = d
-			elif d == 2 or d == 3:
-				drop_x = d
-
-		if drop_z != -1 and drop_x != -1 and noise != null:
-			var grad_z: float = absf(noise.get_noise_2d(float(world_x), float(world_z + 1)) - noise.get_noise_2d(float(world_x), float(world_z - 1)))
-			var grad_x: float = absf(noise.get_noise_2d(float(world_x + 1), float(world_z)) - noise.get_noise_2d(float(world_x - 1), float(world_z)))
-			var chosen_drop: int = drop_z if grad_z >= grad_x else drop_x
-			return _get_ramp_block_id(surface_base_id, chosen_drop)
-		else:
-			return _get_ramp_block_id(surface_base_id, drops[0])
-
-	# 3 or more drops: keep full block
+	# 2 or more drops (corners / diagonal steps): keep flat full block
+	# Prevents placing directional straight ramps whose vertical side walls stick out into open air.
 	return surface_base_id
 
 ## Fills a ChunkData buffer with terrain voxels according to the configuration.

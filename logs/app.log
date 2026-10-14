@@ -1,23 +1,2 @@
-[2026-10-14 20:24:01] [INFO] [Logger] Logger service initialized. Runtime logging directed to res://logs/app.log
-[2026-10-14 20:24:01] [INFO] [WorldGen] ChunkManager initialized and bound to EventBus.
-[2026-10-14 20:24:31] [INFO] [Player] Emitted mine block request for: (-19, 11, 4)
-[2026-10-14 20:24:31] [INFO] [Player] Emitted mine block request for: (-19, 12, 3)
-[2026-10-14 20:24:33] [INFO] [Player] Emitted mine block request for: (-16, 12, 2)
-[2026-10-14 20:24:35] [INFO] [Player] Emitted mine block request for: (-14, 12, 1)
-[2026-10-14 20:24:37] [INFO] [Player] Emitted mine block request for: (-15, 13, 5)
-[2026-10-14 20:24:38] [INFO] [Player] Emitted mine block request for: (-17, 13, 6)
-[2026-10-14 20:24:39] [INFO] [Player] Emitted mine block request for: (-19, 13, 7)
-[2026-10-14 20:24:44] [INFO] [Player] Emitted mine block request for: (-13, 11, -4)
-[2026-10-14 20:24:45] [INFO] [Player] Emitted mine block request for: (-16, 11, -3)
-[2026-10-14 20:24:47] [INFO] [Player] Emitted mine block request for: (-22, 11, -3)
-[2026-10-14 20:24:48] [INFO] [Player] Emitted mine block request for: (-24, 11, -4)
-[2026-10-14 20:24:48] [INFO] [Player] Emitted mine block request for: (-25, 11, -5)
-[2026-10-14 20:24:49] [INFO] [Player] Emitted mine block request for: (-26, 11, -6)
-[2026-10-14 20:24:49] [INFO] [Player] Emitted mine block request for: (-27, 11, -7)
-[2026-10-14 20:24:49] [INFO] [Player] Emitted mine block request for: (-28, 11, -8)
-[2026-10-14 20:24:50] [INFO] [Player] Emitted mine block request for: (-29, 11, -9)
-[2026-10-14 20:24:50] [INFO] [Player] Emitted mine block request for: (-30, 11, -10)
-[2026-10-14 20:24:50] [INFO] [Player] Emitted mine block request for: (-32, 11, -11)
-[2026-10-14 20:24:51] [INFO] [Player] Emitted mine block request for: (-32, 11, -12)
-[2026-10-14 20:24:51] [INFO] [Player] Emitted mine block request for: (-31, 11, -11)
-[2026-10-14 20:24:59] [INFO] [Player] Emitted mine block request for: (-29, 11, -7)
+[2026-10-14 23:04:30] [INFO] [Logger] Logger service initialized. Runtime logging directed to res://logs/app.log
+[2026-10-14 23:04:30] [INFO] [WorldGen] ChunkManager initialized and bound to EventBus.
