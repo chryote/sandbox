@@ -78,7 +78,7 @@ func _create_and_mesh_chunk_view(coord: Vector3i) -> void:
 	var mesh: ArrayMesh = ChunkMesher.build_chunk_mesh(
 		data,
 		registry,
-		Callable(self, "is_voxel_transparent")
+		Callable(self, "get_block")
 	)
 	view.update_mesh_and_collision(mesh)
 

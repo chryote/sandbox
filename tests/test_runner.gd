@@ -4,6 +4,7 @@ extends Node
 const TestVoxelCoordinatesScript = preload("res://tests/unit/test_voxel_coordinates.gd")
 const TestBlockRegistryScript = preload("res://tests/unit/test_block_registry.gd")
 const TestChunkDataScript = preload("res://tests/unit/test_chunk_data.gd")
+const TestRampBlocksScript = preload("res://tests/unit/test_ramp_blocks.gd")
 
 func _ready() -> void:
 	Logger.info("Starting test suite execution...", "TestRunner")
@@ -31,8 +32,15 @@ func _ready() -> void:
 		Logger.error("[FAIL] TestChunkData failed.", "TestRunner")
 		success = false
 
+	# Test 4: Ramp Blocks & Meshing
+	if TestRampBlocksScript.run_all():
+		Logger.info("[PASS] TestRampBlocks passed successfully.", "TestRunner")
+	else:
+		Logger.error("[FAIL] TestRampBlocks failed.", "TestRunner")
+		success = false
+
 	if success:
-		Logger.info("ALL SUITE TESTS PASSED (3/3)", "TestRunner")
+		Logger.info("ALL SUITE TESTS PASSED (4/4)", "TestRunner")
 	else:
 		Logger.error("SOME TESTS FAILED", "TestRunner")
 

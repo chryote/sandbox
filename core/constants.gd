@@ -54,6 +54,15 @@ enum CubeFace {
 	NORTH = 5   ## -Z
 }
 
+## Identification for voxel shape geometry.
+enum BlockShape {
+	CUBE = 0,
+	RAMP_NORTH = 1, ## Slopes down towards -Z (North). Back wall on South (+Z).
+	RAMP_SOUTH = 2, ## Slopes down towards +Z (South). Back wall on North (-Z).
+	RAMP_EAST = 3,  ## Slopes down towards +X (East). Back wall on West (-X).
+	RAMP_WEST = 4   ## Slopes down towards -X (West). Back wall on East (+X).
+}
+
 ## Total number of faces on a cubic voxel.
 const TOTAL_CUBE_FACES: int = 6
 
@@ -62,6 +71,16 @@ const VERTICES_PER_QUAD: int = 4
 
 ## Number of triangle indices required to form two triangles per quad face.
 const INDICES_PER_QUAD: int = 6
+
+## Number of vertices and indices for a triangle face.
+const VERTICES_PER_TRIANGLE: int = 3
+const INDICES_PER_TRIANGLE: int = 3
+const TRI_INDEX_OFFSETS: Array[int] = [0, 1, 2]
+const TRI_UVS: Array[Vector2] = [
+	Vector2(0.0, 1.0),
+	Vector2(1.0, 0.0),
+	Vector2(1.0, 1.0)
+]
 
 ## Unit normal vectors for each of the six cube faces in CubeFace order.
 const FACE_NORMALS: Array[Vector3] = [
@@ -141,6 +160,109 @@ const QUAD_UVS: Array[Vector2] = [
 const QUAD_INDEX_OFFSETS: Array[int] = [0, 2, 1, 0, 3, 2]
 
 ## -----------------------------------------------------------------------------
+## Directional Ramp Mesh Topology
+## -----------------------------------------------------------------------------
+const RAMP_SLOPE_NORMALS: Dictionary = {
+	BlockShape.RAMP_NORTH: Vector3(0.0, 0.70710678, -0.70710678),
+	BlockShape.RAMP_SOUTH: Vector3(0.0, 0.70710678, 0.70710678),
+	BlockShape.RAMP_EAST: Vector3(0.70710678, 0.70710678, 0.0),
+	BlockShape.RAMP_WEST: Vector3(-0.70710678, 0.70710678, 0.0)
+}
+
+## CubeFace corresponding to the solid vertical back wall of the ramp.
+const RAMP_BACK_WALL_FACES: Dictionary = {
+	BlockShape.RAMP_NORTH: CubeFace.SOUTH,
+	BlockShape.RAMP_SOUTH: CubeFace.NORTH,
+	BlockShape.RAMP_EAST: CubeFace.WEST,
+	BlockShape.RAMP_WEST: CubeFace.EAST
+}
+
+## 4-vertex quad definition for the sloped top face of each ramp.
+## Wound so that (V2 - V0) x (V1 - V0) = -Normal, matching the engine's front-face winding.
+const RAMP_SLOPE_QUAD_VERTICES: Dictionary = {
+	BlockShape.RAMP_NORTH: [
+		Vector3(0.0, 0.0, 0.0), # 0 (low West)
+		Vector3(0.0, 1.0, 1.0), # 1 (high West)
+		Vector3(1.0, 1.0, 1.0), # 2 (high East)
+		Vector3(1.0, 0.0, 0.0)  # 3 (low East)
+	],
+	BlockShape.RAMP_SOUTH: [
+		Vector3(1.0, 0.0, 1.0), # 0 (low East)
+		Vector3(1.0, 1.0, 0.0), # 1 (high East)
+		Vector3(0.0, 1.0, 0.0), # 2 (high West)
+		Vector3(0.0, 0.0, 1.0)  # 3 (low West)
+	],
+	BlockShape.RAMP_EAST: [
+		Vector3(1.0, 0.0, 0.0), # 0 (low North)
+		Vector3(0.0, 1.0, 0.0), # 1 (high North)
+		Vector3(0.0, 1.0, 1.0), # 2 (high South)
+		Vector3(1.0, 0.0, 1.0)  # 3 (low South)
+	],
+	BlockShape.RAMP_WEST: [
+		Vector3(0.0, 0.0, 1.0), # 0 (low South)
+		Vector3(1.0, 1.0, 1.0), # 1 (high South)
+		Vector3(1.0, 1.0, 0.0), # 2 (high North)
+		Vector3(0.0, 0.0, 0.0)  # 3 (low North)
+	]
+}
+
+## Definition for the two side triangle faces per ramp shape.
+## Each element in the array has:
+##   "normal": Vector3,
+##   "neighbor_offset": Vector3i,
+##   "vertices": Array[Vector3] (wound so (V1 - V0) x (V2 - V0) = -Normal)
+const RAMP_SIDE_TRIANGLES: Dictionary = {
+	BlockShape.RAMP_NORTH: [
+		{
+			"normal": Vector3(-1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(-1, 0, 0),
+			"vertices": [Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, 0.0), Vector3(0.0, 1.0, 1.0)]
+		},
+		{
+			"normal": Vector3(1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(1, 0, 0),
+			"vertices": [Vector3(1.0, 0.0, 0.0), Vector3(1.0, 0.0, 1.0), Vector3(1.0, 1.0, 1.0)]
+		}
+	],
+	BlockShape.RAMP_SOUTH: [
+		{
+			"normal": Vector3(-1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(-1, 0, 0),
+			"vertices": [Vector3(0.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, 1.0)]
+		},
+		{
+			"normal": Vector3(1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(1, 0, 0),
+			"vertices": [Vector3(1.0, 0.0, 0.0), Vector3(1.0, 0.0, 1.0), Vector3(1.0, 1.0, 0.0)]
+		}
+	],
+	BlockShape.RAMP_EAST: [
+		{
+			"normal": Vector3(0.0, 0.0, -1.0),
+			"neighbor_offset": Vector3i(0, 0, -1),
+			"vertices": [Vector3(1.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0), Vector3(0.0, 0.0, 0.0)]
+		},
+		{
+			"normal": Vector3(0.0, 0.0, 1.0),
+			"neighbor_offset": Vector3i(0, 0, 1),
+			"vertices": [Vector3(1.0, 0.0, 1.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 1.0, 1.0)]
+		}
+	],
+	BlockShape.RAMP_WEST: [
+		{
+			"normal": Vector3(0.0, 0.0, -1.0),
+			"neighbor_offset": Vector3i(0, 0, -1),
+			"vertices": [Vector3(0.0, 0.0, 0.0), Vector3(1.0, 0.0, 0.0), Vector3(1.0, 1.0, 0.0)]
+		},
+		{
+			"normal": Vector3(0.0, 0.0, 1.0),
+			"neighbor_offset": Vector3i(0, 0, 1),
+			"vertices": [Vector3(0.0, 0.0, 1.0), Vector3(1.0, 1.0, 1.0), Vector3(1.0, 0.0, 1.0)]
+		}
+	]
+}
+
+## -----------------------------------------------------------------------------
 ## Standard Registered Block Identifiers
 ## -----------------------------------------------------------------------------
 const BLOCK_ID_AIR: int = 0
@@ -151,6 +273,30 @@ const BLOCK_ID_SAND: int = 4
 const BLOCK_ID_WOOD: int = 5
 const BLOCK_ID_LEAVES: int = 6
 const BLOCK_ID_BEDROCK: int = 7
+
+## Grass Ramps (Surface Layer)
+const BLOCK_ID_GRASS_RAMP_NORTH: int = 8
+const BLOCK_ID_GRASS_RAMP_SOUTH: int = 9
+const BLOCK_ID_GRASS_RAMP_EAST: int = 10
+const BLOCK_ID_GRASS_RAMP_WEST: int = 11
+
+## Dirt Ramps
+const BLOCK_ID_DIRT_RAMP_NORTH: int = 12
+const BLOCK_ID_DIRT_RAMP_SOUTH: int = 13
+const BLOCK_ID_DIRT_RAMP_EAST: int = 14
+const BLOCK_ID_DIRT_RAMP_WEST: int = 15
+
+## Stone Ramps
+const BLOCK_ID_STONE_RAMP_NORTH: int = 16
+const BLOCK_ID_STONE_RAMP_SOUTH: int = 17
+const BLOCK_ID_STONE_RAMP_EAST: int = 18
+const BLOCK_ID_STONE_RAMP_WEST: int = 19
+
+## Sand Ramps
+const BLOCK_ID_SAND_RAMP_NORTH: int = 20
+const BLOCK_ID_SAND_RAMP_SOUTH: int = 21
+const BLOCK_ID_SAND_RAMP_EAST: int = 22
+const BLOCK_ID_SAND_RAMP_WEST: int = 23
 
 ## -----------------------------------------------------------------------------
 ## World Generation Defaults

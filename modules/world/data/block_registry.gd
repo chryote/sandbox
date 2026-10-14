@@ -30,6 +30,7 @@ var _air_definition: BlockDefinition = null
 
 func _init() -> void:
 	_register_default_palette()
+	_register_ramp_palette()
 
 ## Registers a custom block definition into the registry.
 func register_block(definition: BlockDefinition) -> void:
@@ -50,6 +51,37 @@ func is_solid(id: int) -> bool:
 ## Returns whether the block at id is transparent to neighboring faces.
 func is_transparent(id: int) -> bool:
 	return get_block(id).is_transparent
+
+## Returns whether the block at id is a full opaque cube.
+func is_full_cube(id: int) -> bool:
+	var def: BlockDefinition = get_block(id)
+	return def.is_solid and def.shape == Constants.BlockShape.CUBE and not def.is_transparent
+
+## Returns whether a face directed towards neighbor_id is completely occluded by that neighbor.
+func is_face_occluded_by(neighbor_id: int, from_face: Constants.CubeFace) -> bool:
+	var neighbor_def: BlockDefinition = get_block(neighbor_id)
+	if not neighbor_def.is_solid:
+		return false
+	if neighbor_def.shape == Constants.BlockShape.CUBE:
+		return not neighbor_def.is_transparent
+
+	# Neighbor is a directional ramp:
+	# 1. Ramp bottom is on -Y (horizontal plane y=0), so looking UP (+Y) into ramp bottom is occluded.
+	if from_face == Constants.CubeFace.TOP:
+		return true
+
+	# 2. Ramp back wall is a full 1x1 quad. Occluded if looking directly into the back wall.
+	match neighbor_def.shape:
+		Constants.BlockShape.RAMP_NORTH:
+			return from_face == Constants.CubeFace.NORTH
+		Constants.BlockShape.RAMP_SOUTH:
+			return from_face == Constants.CubeFace.SOUTH
+		Constants.BlockShape.RAMP_EAST:
+			return from_face == Constants.CubeFace.EAST
+		Constants.BlockShape.RAMP_WEST:
+			return from_face == Constants.CubeFace.WEST
+
+	return false
 
 ## Checks if an ID has been registered.
 func has_block(id: int) -> bool:
@@ -154,5 +186,75 @@ func _register_default_palette() -> void:
 	bedrock.hardness = HARDNESS_INDESTRUCTIBLE
 	bedrock.top_color = COLOR_BEDROCK
 	bedrock.bottom_color = COLOR_BEDROCK
-	bedrock.side_color = COLOR_BEDROCK
 	register_block(bedrock)
+
+## Registers directional ramp definitions for all standard terrain materials.
+func _register_ramp_palette() -> void:
+	var ramp_shapes: Array[Constants.BlockShape] = [
+		Constants.BlockShape.RAMP_NORTH,
+		Constants.BlockShape.RAMP_SOUTH,
+		Constants.BlockShape.RAMP_EAST,
+		Constants.BlockShape.RAMP_WEST
+	]
+	var dir_names: Array[String] = ["North", "South", "East", "West"]
+
+	# Grass Ramps (IDs 8..11)
+	for i: int in range(4):
+		var def: BlockDefinition = BlockDefinition.new()
+		def.id = Constants.BLOCK_ID_GRASS_RAMP_NORTH + i
+		def.name = StringName("Grass Ramp " + dir_names[i])
+		def.is_solid = true
+		def.is_transparent = true
+		def.shape = ramp_shapes[i]
+		def.base_block_id = Constants.BLOCK_ID_GRASS
+		def.hardness = HARDNESS_SOFT
+		def.top_color = COLOR_GRASS_TOP
+		def.bottom_color = COLOR_DIRT
+		def.side_color = COLOR_GRASS_SIDE
+		register_block(def)
+
+	# Dirt Ramps (IDs 12..15)
+	for i: int in range(4):
+		var def: BlockDefinition = BlockDefinition.new()
+		def.id = Constants.BLOCK_ID_DIRT_RAMP_NORTH + i
+		def.name = StringName("Dirt Ramp " + dir_names[i])
+		def.is_solid = true
+		def.is_transparent = true
+		def.shape = ramp_shapes[i]
+		def.base_block_id = Constants.BLOCK_ID_DIRT
+		def.hardness = HARDNESS_SOFT
+		def.top_color = COLOR_DIRT
+		def.bottom_color = COLOR_DIRT
+		def.side_color = COLOR_DIRT
+		register_block(def)
+
+	# Stone Ramps (IDs 16..19)
+	for i: int in range(4):
+		var def: BlockDefinition = BlockDefinition.new()
+		def.id = Constants.BLOCK_ID_STONE_RAMP_NORTH + i
+		def.name = StringName("Stone Ramp " + dir_names[i])
+		def.is_solid = true
+		def.is_transparent = true
+		def.shape = ramp_shapes[i]
+		def.base_block_id = Constants.BLOCK_ID_STONE
+		def.hardness = HARDNESS_HARD
+		def.top_color = COLOR_STONE
+		def.bottom_color = COLOR_STONE
+		def.side_color = COLOR_STONE
+		register_block(def)
+
+	# Sand Ramps (IDs 20..23)
+	for i: int in range(4):
+		var def: BlockDefinition = BlockDefinition.new()
+		def.id = Constants.BLOCK_ID_SAND_RAMP_NORTH + i
+		def.name = StringName("Sand Ramp " + dir_names[i])
+		def.is_solid = true
+		def.is_transparent = true
+		def.shape = ramp_shapes[i]
+		def.base_block_id = Constants.BLOCK_ID_SAND
+		def.hardness = HARDNESS_SOFT
+		def.top_color = COLOR_SAND
+		def.bottom_color = COLOR_SAND
+		def.side_color = COLOR_SAND
+		register_block(def)
+

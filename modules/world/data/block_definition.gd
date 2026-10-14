@@ -9,6 +9,12 @@ extends Resource
 @export var is_solid: bool = false
 @export var is_transparent: bool = true
 @export var hardness: float = 1.0
+@export var shape: Constants.BlockShape = Constants.BlockShape.CUBE
+@export var base_block_id: int = Constants.BLOCK_ID_AIR
+
+var is_ramp: bool:
+	get:
+		return shape != Constants.BlockShape.CUBE
 
 ## Face-specific vertex tinting colors (used for clean shading and debugging)
 @export var top_color: Color = Color.WHITE

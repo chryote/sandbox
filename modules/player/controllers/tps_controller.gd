@@ -20,6 +20,11 @@ func _ready() -> void:
 	if raycaster != null and camera_rig != null:
 		raycaster.camera_rig = camera_rig
 
+	# Allow smooth stair-free walking up 45-degree voxel ramps
+	floor_max_angle = deg_to_rad(48.0)
+	floor_snap_length = 0.35
+	floor_constant_speed = true
+
 	if EventBus != null:
 		EventBus.player_position_updated.emit(global_position)
 
