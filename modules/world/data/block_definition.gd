@@ -12,6 +12,18 @@ extends Resource
 @export var shape: Constants.BlockShape = Constants.BlockShape.CUBE
 @export var base_block_id: int = Constants.BLOCK_ID_AIR
 
+var is_straight_ramp: bool:
+	get:
+		return shape >= Constants.BlockShape.RAMP_NORTH and shape <= Constants.BlockShape.RAMP_WEST
+
+var is_inner_corner: bool:
+	get:
+		return shape >= Constants.BlockShape.INNER_CORNER_NORTH_WEST and shape <= Constants.BlockShape.INNER_CORNER_SOUTH_EAST
+
+var is_outer_corner: bool:
+	get:
+		return shape >= Constants.BlockShape.OUTER_CORNER_NORTH_WEST and shape <= Constants.BlockShape.OUTER_CORNER_SOUTH_EAST
+
 var is_ramp: bool:
 	get:
 		return shape != Constants.BlockShape.CUBE

@@ -31,11 +31,46 @@ func get_terrain_height_at(world_x: int, world_z: int) -> int:
 	var max_y: int = Constants.CHUNK_HEIGHT_VOXELS - 1
 	return clampi(target_height, BEDROCK_LAYER_Y, max_y)
 
-## Resolves whether a surface voxel should be a standard flat cube or a directional ramp.
+## Resolves whether an empty voxel at clamped_height + 1 is an inside corner bridging two perpendicular ramps.
+func _resolve_inner_corner_offset(
+	diff_n: int, diff_s: int, diff_e: int, diff_w: int,
+	h_nw: int, h_ne: int, h_sw: int, h_se: int,
+	clamped_height: int
+) -> int:
+	var h: int = clamped_height
+	# NW low (South & East ramps higher)
+	if diff_s >= 1 and diff_e >= 1 and h_se >= h + 1 and diff_n <= 0 and diff_w <= 0:
+		return 0 # INNER_CORNER_NORTH_WEST
+	# NE low (South & West ramps higher)
+	if diff_s >= 1 and diff_w >= 1 and h_sw >= h + 1 and diff_n <= 0 and diff_e <= 0:
+		return 1 # INNER_CORNER_NORTH_EAST
+	# SW low (North & East ramps higher)
+	if diff_n >= 1 and diff_e >= 1 and h_ne >= h + 1 and diff_s <= 0 and diff_w <= 0:
+		return 2 # INNER_CORNER_SOUTH_WEST
+	# SE low (North & West ramps higher)
+	if diff_n >= 1 and diff_w >= 1 and h_nw >= h + 1 and diff_s <= 0 and diff_e <= 0:
+		return 3 # INNER_CORNER_SOUTH_EAST
+
+	return -1
+
+## Resolves the registered block ID for an inner corner shape given the surface base material.
+func _get_inner_corner_block_id(surface_base_id: int, corner_offset: int) -> int:
+	match surface_base_id:
+		Constants.BLOCK_ID_GRASS:
+			return Constants.BLOCK_ID_GRASS_INNER_CORNER_NW + corner_offset
+		Constants.BLOCK_ID_SAND:
+			return Constants.BLOCK_ID_SAND_INNER_CORNER_NW + corner_offset
+		Constants.BLOCK_ID_STONE:
+			return Constants.BLOCK_ID_STONE_INNER_CORNER_NW + corner_offset
+		Constants.BLOCK_ID_DIRT:
+			return Constants.BLOCK_ID_DIRT_INNER_CORNER_NW + corner_offset
+		_:
+			return surface_base_id
+
+## Resolves whether a surface voxel should be a standard flat cube, straight ramp, or outer corner.
 func _resolve_surface_block_id(
 	surface_base_id: int,
-	diff_n: int, diff_s: int, diff_e: int, diff_w: int,
-	world_x: int, world_z: int
+	diff_n: int, diff_s: int, diff_e: int, diff_w: int
 ) -> int:
 	# Conflicting opposite drops (ridge or peak): keep full block
 	if (diff_n == -1 and diff_s == -1) or (diff_e == -1 and diff_w == -1):
@@ -50,32 +85,48 @@ func _resolve_surface_block_id(
 	if drops.is_empty():
 		return surface_base_id
 
-	var chosen_dir: int = drops[0]
-	if drops.size() > 1:
-		# Pick the direction that has the steeper noise gradient (lower raw noise)
-		var best_dir: int = drops[0]
-		var min_raw: float = 999.0
-		for d: int in drops:
-			var nx: int = world_x + (1 if d == 2 else (-1 if d == 3 else 0))
-			var nz: int = world_z + (1 if d == 1 else (-1 if d == 0 else 0))
-			var raw: float = noise.get_noise_2d(float(nx), float(nz))
-			if raw < min_raw:
-				min_raw = raw
-				best_dir = d
-		chosen_dir = best_dir
+	# Single drop: standard directional ramp
+	if drops.size() == 1:
+		var shape_offset: int = drops[0]
+		match surface_base_id:
+			Constants.BLOCK_ID_GRASS:
+				return Constants.BLOCK_ID_GRASS_RAMP_NORTH + shape_offset
+			Constants.BLOCK_ID_SAND:
+				return Constants.BLOCK_ID_SAND_RAMP_NORTH + shape_offset
+			Constants.BLOCK_ID_STONE:
+				return Constants.BLOCK_ID_STONE_RAMP_NORTH + shape_offset
+			Constants.BLOCK_ID_DIRT:
+				return Constants.BLOCK_ID_DIRT_RAMP_NORTH + shape_offset
+			_:
+				return surface_base_id
 
-	var shape_offset: int = chosen_dir # 0=North, 1=South, 2=East, 3=West
-	match surface_base_id:
-		Constants.BLOCK_ID_GRASS:
-			return Constants.BLOCK_ID_GRASS_RAMP_NORTH + shape_offset
-		Constants.BLOCK_ID_SAND:
-			return Constants.BLOCK_ID_SAND_RAMP_NORTH + shape_offset
-		Constants.BLOCK_ID_STONE:
-			return Constants.BLOCK_ID_STONE_RAMP_NORTH + shape_offset
-		Constants.BLOCK_ID_DIRT:
-			return Constants.BLOCK_ID_DIRT_RAMP_NORTH + shape_offset
-		_:
-			return surface_base_id
+	# Exactly 2 perpendicular drops: convex outer corner slope
+	if drops.size() == 2:
+		var corner_offset: int = -1
+		if 1 in drops and 2 in drops:
+			corner_offset = 0 # South & East drop -> high at NW (OUTER_CORNER_NORTH_WEST)
+		elif 1 in drops and 3 in drops:
+			corner_offset = 1 # South & West drop -> high at NE (OUTER_CORNER_NORTH_EAST)
+		elif 0 in drops and 2 in drops:
+			corner_offset = 2 # North & East drop -> high at SW (OUTER_CORNER_SOUTH_WEST)
+		elif 0 in drops and 3 in drops:
+			corner_offset = 3 # North & West drop -> high at SE (OUTER_CORNER_SOUTH_EAST)
+
+		if corner_offset != -1:
+			match surface_base_id:
+				Constants.BLOCK_ID_GRASS:
+					return Constants.BLOCK_ID_GRASS_OUTER_CORNER_NW + corner_offset
+				Constants.BLOCK_ID_SAND:
+					return Constants.BLOCK_ID_SAND_OUTER_CORNER_NW + corner_offset
+				Constants.BLOCK_ID_STONE:
+					return Constants.BLOCK_ID_STONE_OUTER_CORNER_NW + corner_offset
+				Constants.BLOCK_ID_DIRT:
+					return Constants.BLOCK_ID_DIRT_OUTER_CORNER_NW + corner_offset
+				_:
+					return surface_base_id
+
+	# 3 or more drops: keep full block
+	return surface_base_id
 
 ## Fills a ChunkData buffer with terrain voxels according to the configuration.
 func generate_chunk_data(chunk_data: ChunkData) -> void:
@@ -102,23 +153,49 @@ func generate_chunk_data(chunk_data: ChunkData) -> void:
 			var diff_e: int = h_east - clamped_height
 			var diff_w: int = h_west - clamped_height
 
+			# Sample diagonal neighbor heights for inner corner detection
+			var h_nw: int = get_terrain_height_at(world_x - 1, world_z - 1)
+			var h_ne: int = get_terrain_height_at(world_x + 1, world_z - 1)
+			var h_sw: int = get_terrain_height_at(world_x - 1, world_z + 1)
+			var h_se: int = get_terrain_height_at(world_x + 1, world_z + 1)
+
+			var inner_offset: int = -1
+			if clamped_height + 1 < Constants.CHUNK_HEIGHT_VOXELS:
+				inner_offset = _resolve_inner_corner_offset(
+					diff_n, diff_s, diff_e, diff_w,
+					h_nw, h_ne, h_sw, h_se,
+					clamped_height
+				)
+
+			var has_inner_corner: bool = (inner_offset != -1)
+
 			for y: int in range(Constants.CHUNK_HEIGHT_VOXELS):
 				var local_pos: Vector3i = Vector3i(x, y, z)
 
-				if y > clamped_height:
-					# Air above ground
+				if y > clamped_height + 1:
+					# Air above ground and slopes
 					chunk_data.set_block(local_pos, Constants.BLOCK_ID_AIR)
+				elif y == clamped_height + 1:
+					# Inner corner shim layer
+					if has_inner_corner:
+						var inner_id: int = _get_inner_corner_block_id(biome.surface_block_id, inner_offset)
+						chunk_data.set_block(local_pos, inner_id)
+					else:
+						chunk_data.set_block(local_pos, Constants.BLOCK_ID_AIR)
 				elif y == BEDROCK_LAYER_Y:
 					# Indestructible bottom foundation
 					chunk_data.set_block(local_pos, biome.bedrock_block_id)
 				elif y == clamped_height:
-					# Surface layer (flat cube or directional ramp)
-					var surface_block_id: int = _resolve_surface_block_id(
-						biome.surface_block_id,
-						diff_n, diff_s, diff_e, diff_w,
-						world_x, world_z
-					)
-					chunk_data.set_block(local_pos, surface_block_id)
+					# Surface layer (flat cube, directional ramp, or outer corner)
+					if has_inner_corner:
+						# Solid foundation below inner corner shim
+						chunk_data.set_block(local_pos, biome.subsurface_block_id)
+					else:
+						var surface_block_id: int = _resolve_surface_block_id(
+							biome.surface_block_id,
+							diff_n, diff_s, diff_e, diff_w
+						)
+						chunk_data.set_block(local_pos, surface_block_id)
 				elif y > (clamped_height - biome.subsurface_depth_layers):
 					# Subsurface layer (e.g. Dirt)
 					chunk_data.set_block(local_pos, biome.subsurface_block_id)

@@ -92,4 +92,78 @@ static func run_all() -> bool:
 			printerr("FAIL: Ramp slope quad winding inverted for shape: %d" % shape)
 			return false
 
+	# 6. Test Inner Corner Block Registration & Properties
+	var inner_corner_nw = registry.get_block(ConstantsScript.BLOCK_ID_GRASS_INNER_CORNER_NW)
+	if inner_corner_nw.id != ConstantsScript.BLOCK_ID_GRASS_INNER_CORNER_NW:
+		printerr("FAIL: Grass Inner Corner NW not registered")
+		return false
+	if not inner_corner_nw.is_inner_corner or not inner_corner_nw.is_ramp:
+		printerr("FAIL: Grass Inner Corner NW must report is_inner_corner == true and is_ramp == true")
+		return false
+	if registry.is_full_cube(ConstantsScript.BLOCK_ID_GRASS_INNER_CORNER_NW):
+		printerr("FAIL: Grass Inner Corner NW must NOT be a full cube")
+		return false
+
+	# 7. Test Inner Corner Occlusion (Two Back Walls: South & East for NW low)
+	if not registry.is_face_occluded_by(ConstantsScript.BLOCK_ID_GRASS_INNER_CORNER_NW, ConstantsScript.CubeFace.SOUTH):
+		printerr("FAIL: Inner Corner NW South back wall must occlude face looking into it")
+		return false
+	if not registry.is_face_occluded_by(ConstantsScript.BLOCK_ID_GRASS_INNER_CORNER_NW, ConstantsScript.CubeFace.EAST):
+		printerr("FAIL: Inner Corner NW East back wall must occlude face looking into it")
+		return false
+	if registry.is_face_occluded_by(ConstantsScript.BLOCK_ID_GRASS_INNER_CORNER_NW, ConstantsScript.CubeFace.NORTH):
+		printerr("FAIL: Inner Corner NW North side must NOT be fully occluded")
+		return false
+
+	# 8. Test Meshing of Isolated Inner Corner Block
+	var chunk_inner = ChunkDataScript.new(Vector3i.ZERO)
+	chunk_inner.set_block(Vector3i(2, 2, 2), ConstantsScript.BLOCK_ID_GRASS_INNER_CORNER_NW)
+	var mesh_inner: ArrayMesh = ChunkMesherScript.build_chunk_mesh(chunk_inner, registry)
+	if mesh_inner == null:
+		printerr("FAIL: Mesher returned null for chunk with inner corner")
+		return false
+	var arrays_inner: Array = mesh_inner.surface_get_arrays(0)
+	var verts_inner: PackedVector3Array = arrays_inner[Mesh.ARRAY_VERTEX]
+	var indices_inner: PackedInt32Array = arrays_inner[Mesh.ARRAY_INDEX]
+	# 6 (top triangles) + 4 (bottom) + 8 (2 back walls) + 6 (2 side triangles) = 24 vertices, 30 indices
+	if verts_inner.size() != 24 or indices_inner.size() != 30:
+		printerr("FAIL: Isolated inner corner expected 24 verts and 30 indices, got %d verts, %d indices" % [verts_inner.size(), indices_inner.size()])
+		return false
+
+	# 9. Test Inner & Outer Corner Slope Front-Facing Winding (Godot clockwise convention)
+	for shape in [ConstantsScript.BlockShape.INNER_CORNER_NORTH_WEST, ConstantsScript.BlockShape.INNER_CORNER_NORTH_EAST, ConstantsScript.BlockShape.INNER_CORNER_SOUTH_WEST, ConstantsScript.BlockShape.INNER_CORNER_SOUTH_EAST]:
+		var top_tris: Array = ConstantsScript.INNER_CORNER_TOP_TRIANGLES[shape]
+		for tri in top_tris:
+			var tv: Array = tri["vertices"]
+			var tn: Vector3 = tri["normal"]
+			var calc_n: Vector3 = (tv[2] - tv[0]).cross(tv[1] - tv[0]).normalized()
+			if not calc_n.is_equal_approx(tn):
+				printerr("FAIL: Inner corner slope normal mismatch for shape: %d" % shape)
+				return false
+
+	for shape in [ConstantsScript.BlockShape.OUTER_CORNER_NORTH_WEST, ConstantsScript.BlockShape.OUTER_CORNER_NORTH_EAST, ConstantsScript.BlockShape.OUTER_CORNER_SOUTH_WEST, ConstantsScript.BlockShape.OUTER_CORNER_SOUTH_EAST]:
+		var top_tris: Array = ConstantsScript.OUTER_CORNER_TOP_TRIANGLES[shape]
+		for tri in top_tris:
+			var tv: Array = tri["vertices"]
+			var tn: Vector3 = tri["normal"]
+			var calc_n: Vector3 = (tv[2] - tv[0]).cross(tv[1] - tv[0]).normalized()
+			if not calc_n.is_equal_approx(tn):
+				printerr("FAIL: Outer corner slope normal mismatch for shape: %d" % shape)
+				return false
+
+	# 10. Test Meshing of Isolated Outer Corner Block
+	var chunk_outer = ChunkDataScript.new(Vector3i.ZERO)
+	chunk_outer.set_block(Vector3i(2, 2, 2), ConstantsScript.BLOCK_ID_GRASS_OUTER_CORNER_NW)
+	var mesh_outer: ArrayMesh = ChunkMesherScript.build_chunk_mesh(chunk_outer, registry)
+	if mesh_outer == null:
+		printerr("FAIL: Mesher returned null for chunk with outer corner")
+		return false
+	var arrays_outer: Array = mesh_outer.surface_get_arrays(0)
+	var verts_outer: PackedVector3Array = arrays_outer[Mesh.ARRAY_VERTEX]
+	var indices_outer: PackedInt32Array = arrays_outer[Mesh.ARRAY_INDEX]
+	# 6 (top triangles) + 4 (bottom) + 6 (2 side triangles) = 16 vertices, 18 indices
+	if verts_outer.size() != 16 or indices_outer.size() != 18:
+		printerr("FAIL: Isolated outer corner expected 16 verts and 18 indices, got %d verts, %d indices" % [verts_outer.size(), indices_outer.size()])
+		return false
+
 	return true

@@ -58,6 +58,18 @@ static func build_chunk_mesh(
 						chunk_data, registry, chunk_origin_voxel, neighbor_query_callable,
 						vertices, normals, uvs, colors, indices, vertex_counter
 					)
+				elif block_def.is_inner_corner:
+					vertex_counter = _mesh_inner_corner_block(
+						local_pos, block_def, block_base_pos,
+						chunk_data, registry, chunk_origin_voxel, neighbor_query_callable,
+						vertices, normals, uvs, colors, indices, vertex_counter
+					)
+				elif block_def.is_outer_corner:
+					vertex_counter = _mesh_outer_corner_block(
+						local_pos, block_def, block_base_pos,
+						chunk_data, registry, chunk_origin_voxel, neighbor_query_callable,
+						vertices, normals, uvs, colors, indices, vertex_counter
+					)
 				else:
 					vertex_counter = _mesh_ramp_block(
 						local_pos, block_def, block_base_pos,
@@ -235,6 +247,203 @@ static func _mesh_ramp_block(
 
 	# 4. Side Triangles (2 triangles per ramp)
 	var side_triangles: Array = Constants.RAMP_SIDE_TRIANGLES[shape]
+	for side_data: Dictionary in side_triangles:
+		var side_offset: Vector3i = side_data["neighbor_offset"]
+		var side_id: int = _get_neighbor_block_id(
+			chunk_data, local_pos, side_offset, chunk_origin_voxel, neighbor_query_callable
+		)
+		if registry.is_full_cube(side_id):
+			continue
+
+		var tri_normal: Vector3 = side_data["normal"]
+		var tri_verts: Array = side_data["vertices"]
+		var side_color: Color = block_def.side_color
+
+		for v_idx: int in range(Constants.VERTICES_PER_TRIANGLE):
+			var vert_offset: Vector3 = tri_verts[v_idx] * Constants.VOXEL_SIZE_METERS
+			vertices.append(block_base_pos + vert_offset)
+			normals.append(tri_normal)
+			uvs.append(Constants.TRI_UVS[v_idx])
+			colors.append(side_color)
+
+		for idx_offset: int in Constants.TRI_INDEX_OFFSETS:
+			indices.append(vertex_counter + idx_offset)
+
+		vertex_counter += Constants.VERTICES_PER_TRIANGLE
+
+	return vertex_counter
+
+## Emits geometry for an inner corner slope block (2 inward sloped top triangles, bottom, 2 back walls, 2 side triangles).
+static func _mesh_inner_corner_block(
+	local_pos: Vector3i,
+	block_def: BlockDefinition,
+	block_base_pos: Vector3,
+	chunk_data: ChunkData,
+	registry: BlockRegistry,
+	chunk_origin_voxel: Vector3i,
+	neighbor_query_callable: Callable,
+	vertices: PackedVector3Array,
+	normals: PackedVector3Array,
+	uvs: PackedVector2Array,
+	colors: PackedColorArray,
+	indices: PackedInt32Array,
+	vertex_counter: int
+) -> int:
+	var shape: Constants.BlockShape = block_def.shape
+
+	# 1. Two Sloped Top Faces (meeting at central diagonal crease)
+	var top_triangles: Array = Constants.INNER_CORNER_TOP_TRIANGLES[shape]
+	var slope_color: Color = block_def.top_color
+	for tri_data: Dictionary in top_triangles:
+		var tri_normal: Vector3 = tri_data["normal"]
+		var tri_verts: Array = tri_data["vertices"]
+
+		for v_idx: int in range(Constants.VERTICES_PER_TRIANGLE):
+			var vert_offset: Vector3 = tri_verts[v_idx] * Constants.VOXEL_SIZE_METERS
+			vertices.append(block_base_pos + vert_offset)
+			normals.append(tri_normal)
+			uvs.append(Constants.TRI_UVS[v_idx])
+			colors.append(slope_color)
+
+		for idx_offset: int in Constants.TRI_INDEX_OFFSETS:
+			indices.append(vertex_counter + idx_offset)
+
+		vertex_counter += Constants.VERTICES_PER_TRIANGLE
+
+	# 2. Bottom Face (culled if bottom neighbor is full solid cube)
+	var bottom_id: int = _get_neighbor_block_id(
+		chunk_data, local_pos, Vector3i(0, -1, 0), chunk_origin_voxel, neighbor_query_callable
+	)
+	if not registry.is_full_cube(bottom_id):
+		var bottom_verts: Array = Constants.FACE_QUAD_VERTICES[Constants.CubeFace.BOTTOM]
+		var bottom_normal: Vector3 = Constants.FACE_NORMALS[Constants.CubeFace.BOTTOM]
+		var bottom_color: Color = block_def.bottom_color
+
+		for v_idx: int in range(Constants.VERTICES_PER_QUAD):
+			var vert_offset: Vector3 = bottom_verts[v_idx] * Constants.VOXEL_SIZE_METERS
+			vertices.append(block_base_pos + vert_offset)
+			normals.append(bottom_normal)
+			uvs.append(Constants.QUAD_UVS[v_idx])
+			colors.append(bottom_color)
+
+		for idx_offset: int in Constants.QUAD_INDEX_OFFSETS:
+			indices.append(vertex_counter + idx_offset)
+
+		vertex_counter += Constants.VERTICES_PER_QUAD
+
+	# 3. Two Solid Back Wall Faces (full vertical quads)
+	var back_faces: Array = Constants.INNER_CORNER_BACK_WALL_FACES[shape]
+	for back_face_val in back_faces:
+		var back_face: Constants.CubeFace = back_face_val as Constants.CubeFace
+		var back_offset: Vector3i = Constants.FACE_NEIGHBOR_OFFSETS[back_face]
+		var back_id: int = _get_neighbor_block_id(
+			chunk_data, local_pos, back_offset, chunk_origin_voxel, neighbor_query_callable
+		)
+		if not registry.is_full_cube(back_id):
+			var back_verts: Array = Constants.FACE_QUAD_VERTICES[back_face]
+			var back_normal: Vector3 = Constants.FACE_NORMALS[back_face]
+			var back_color: Color = block_def.side_color
+
+			for v_idx: int in range(Constants.VERTICES_PER_QUAD):
+				var vert_offset: Vector3 = back_verts[v_idx] * Constants.VOXEL_SIZE_METERS
+				vertices.append(block_base_pos + vert_offset)
+				normals.append(back_normal)
+				uvs.append(Constants.QUAD_UVS[v_idx])
+				colors.append(back_color)
+
+			for idx_offset: int in Constants.QUAD_INDEX_OFFSETS:
+				indices.append(vertex_counter + idx_offset)
+
+			vertex_counter += Constants.VERTICES_PER_QUAD
+
+	# 4. Two Side Triangles
+	var side_triangles: Array = Constants.INNER_CORNER_SIDE_TRIANGLES[shape]
+	for side_data: Dictionary in side_triangles:
+		var side_offset: Vector3i = side_data["neighbor_offset"]
+		var side_id: int = _get_neighbor_block_id(
+			chunk_data, local_pos, side_offset, chunk_origin_voxel, neighbor_query_callable
+		)
+		if registry.is_full_cube(side_id):
+			continue
+
+		var tri_normal: Vector3 = side_data["normal"]
+		var tri_verts: Array = side_data["vertices"]
+		var side_color: Color = block_def.side_color
+
+		for v_idx: int in range(Constants.VERTICES_PER_TRIANGLE):
+			var vert_offset: Vector3 = tri_verts[v_idx] * Constants.VOXEL_SIZE_METERS
+			vertices.append(block_base_pos + vert_offset)
+			normals.append(tri_normal)
+			uvs.append(Constants.TRI_UVS[v_idx])
+			colors.append(side_color)
+
+		for idx_offset: int in Constants.TRI_INDEX_OFFSETS:
+			indices.append(vertex_counter + idx_offset)
+
+		vertex_counter += Constants.VERTICES_PER_TRIANGLE
+
+	return vertex_counter
+
+## Emits geometry for an outer corner slope block (2 outward sloped top triangles, bottom, 2 side triangles).
+static func _mesh_outer_corner_block(
+	local_pos: Vector3i,
+	block_def: BlockDefinition,
+	block_base_pos: Vector3,
+	chunk_data: ChunkData,
+	registry: BlockRegistry,
+	chunk_origin_voxel: Vector3i,
+	neighbor_query_callable: Callable,
+	vertices: PackedVector3Array,
+	normals: PackedVector3Array,
+	uvs: PackedVector2Array,
+	colors: PackedColorArray,
+	indices: PackedInt32Array,
+	vertex_counter: int
+) -> int:
+	var shape: Constants.BlockShape = block_def.shape
+
+	# 1. Two Sloped Top Faces (meeting at outward diagonal ridge)
+	var top_triangles: Array = Constants.OUTER_CORNER_TOP_TRIANGLES[shape]
+	var slope_color: Color = block_def.top_color
+	for tri_data: Dictionary in top_triangles:
+		var tri_normal: Vector3 = tri_data["normal"]
+		var tri_verts: Array = tri_data["vertices"]
+
+		for v_idx: int in range(Constants.VERTICES_PER_TRIANGLE):
+			var vert_offset: Vector3 = tri_verts[v_idx] * Constants.VOXEL_SIZE_METERS
+			vertices.append(block_base_pos + vert_offset)
+			normals.append(tri_normal)
+			uvs.append(Constants.TRI_UVS[v_idx])
+			colors.append(slope_color)
+
+		for idx_offset: int in Constants.TRI_INDEX_OFFSETS:
+			indices.append(vertex_counter + idx_offset)
+
+		vertex_counter += Constants.VERTICES_PER_TRIANGLE
+
+	# 2. Bottom Face (culled if bottom neighbor is full solid cube)
+	var bottom_id: int = _get_neighbor_block_id(
+		chunk_data, local_pos, Vector3i(0, -1, 0), chunk_origin_voxel, neighbor_query_callable
+	)
+	if not registry.is_full_cube(bottom_id):
+		var bottom_verts: Array = Constants.FACE_QUAD_VERTICES[Constants.CubeFace.BOTTOM]
+		var bottom_normal: Vector3 = Constants.FACE_NORMALS[Constants.CubeFace.BOTTOM]
+		var bottom_color: Color = block_def.bottom_color
+
+		for v_idx: int in range(Constants.VERTICES_PER_QUAD):
+			var vert_offset: Vector3 = bottom_verts[v_idx] * Constants.VOXEL_SIZE_METERS
+			vertices.append(block_base_pos + vert_offset)
+			normals.append(bottom_normal)
+			uvs.append(Constants.QUAD_UVS[v_idx])
+			colors.append(bottom_color)
+
+		for idx_offset: int in Constants.QUAD_INDEX_OFFSETS:
+			indices.append(vertex_counter + idx_offset)
+
+		vertex_counter += Constants.VERTICES_PER_QUAD
+
+	# 3. Two Side Triangles
+	var side_triangles: Array = Constants.OUTER_CORNER_SIDE_TRIANGLES[shape]
 	for side_data: Dictionary in side_triangles:
 		var side_offset: Vector3i = side_data["neighbor_offset"]
 		var side_id: int = _get_neighbor_block_id(

@@ -60,7 +60,19 @@ enum BlockShape {
 	RAMP_NORTH = 1, ## Slopes down towards -Z (North). Back wall on South (+Z).
 	RAMP_SOUTH = 2, ## Slopes down towards +Z (South). Back wall on North (-Z).
 	RAMP_EAST = 3,  ## Slopes down towards +X (East). Back wall on West (-X).
-	RAMP_WEST = 4   ## Slopes down towards -X (West). Back wall on East (+X).
+	RAMP_WEST = 4,  ## Slopes down towards -X (West). Back wall on East (+X).
+
+	## Inner Corner (Concave) Slopes: 3 high corners, 1 low corner.
+	INNER_CORNER_NORTH_WEST = 5, ## Low point at NW (0,0). Back walls on South (+Z) and East (+X).
+	INNER_CORNER_NORTH_EAST = 6, ## Low point at NE (1,0). Back walls on South (+Z) and West (-X).
+	INNER_CORNER_SOUTH_WEST = 7, ## Low point at SW (0,1). Back walls on North (-Z) and East (+X).
+	INNER_CORNER_SOUTH_EAST = 8, ## Low point at SE (1,1). Back walls on North (-Z) and West (-X).
+
+	## Outer Corner (Convex) Slopes: 1 high corner, 3 low corners.
+	OUTER_CORNER_NORTH_WEST = 9,  ## High point at NW (0,0). Slopes down towards South and East.
+	OUTER_CORNER_NORTH_EAST = 10, ## High point at NE (1,0). Slopes down towards South and West.
+	OUTER_CORNER_SOUTH_WEST = 11, ## High point at SW (0,1). Slopes down towards North and East.
+	OUTER_CORNER_SOUTH_EAST = 12  ## High point at SE (1,1). Slopes down towards North and West.
 }
 
 ## Total number of faces on a cubic voxel.
@@ -263,6 +275,213 @@ const RAMP_SIDE_TRIANGLES: Dictionary = {
 }
 
 ## -----------------------------------------------------------------------------
+## Inner Corner Slope Mesh Topology
+## -----------------------------------------------------------------------------
+## Two solid vertical back wall faces per inner corner.
+const INNER_CORNER_BACK_WALL_FACES: Dictionary = {
+	BlockShape.INNER_CORNER_NORTH_WEST: [CubeFace.SOUTH, CubeFace.EAST],
+	BlockShape.INNER_CORNER_NORTH_EAST: [CubeFace.SOUTH, CubeFace.WEST],
+	BlockShape.INNER_CORNER_SOUTH_WEST: [CubeFace.NORTH, CubeFace.EAST],
+	BlockShape.INNER_CORNER_SOUTH_EAST: [CubeFace.NORTH, CubeFace.WEST]
+}
+
+## Two sloped top triangles meeting at the central diagonal crease.
+## Wound so that (V2 - V0) x (V1 - V0) = Normal (Godot front-facing clockwise winding).
+const INNER_CORNER_TOP_TRIANGLES: Dictionary = {
+	BlockShape.INNER_CORNER_NORTH_WEST: [
+		{
+			"normal": Vector3(-0.70710678, 0.70710678, 0.0),
+			"vertices": [Vector3(0.0, 0.0, 0.0), Vector3(1.0, 1.0, 0.0), Vector3(1.0, 1.0, 1.0)]
+		},
+		{
+			"normal": Vector3(0.0, 0.70710678, -0.70710678),
+			"vertices": [Vector3(0.0, 0.0, 0.0), Vector3(1.0, 1.0, 1.0), Vector3(0.0, 1.0, 1.0)]
+		}
+	],
+	BlockShape.INNER_CORNER_NORTH_EAST: [
+		{
+			"normal": Vector3(0.70710678, 0.70710678, 0.0),
+			"vertices": [Vector3(1.0, 0.0, 0.0), Vector3(0.0, 1.0, 1.0), Vector3(0.0, 1.0, 0.0)]
+		},
+		{
+			"normal": Vector3(0.0, 0.70710678, -0.70710678),
+			"vertices": [Vector3(1.0, 0.0, 0.0), Vector3(1.0, 1.0, 1.0), Vector3(0.0, 1.0, 1.0)]
+		}
+	],
+	BlockShape.INNER_CORNER_SOUTH_WEST: [
+		{
+			"normal": Vector3(0.0, 0.70710678, 0.70710678),
+			"vertices": [Vector3(0.0, 0.0, 1.0), Vector3(0.0, 1.0, 0.0), Vector3(1.0, 1.0, 0.0)]
+		},
+		{
+			"normal": Vector3(-0.70710678, 0.70710678, 0.0),
+			"vertices": [Vector3(0.0, 0.0, 1.0), Vector3(1.0, 1.0, 0.0), Vector3(1.0, 1.0, 1.0)]
+		}
+	],
+	BlockShape.INNER_CORNER_SOUTH_EAST: [
+		{
+			"normal": Vector3(0.0, 0.70710678, 0.70710678),
+			"vertices": [Vector3(1.0, 0.0, 1.0), Vector3(0.0, 1.0, 0.0), Vector3(1.0, 1.0, 0.0)]
+		},
+		{
+			"normal": Vector3(0.70710678, 0.70710678, 0.0),
+			"vertices": [Vector3(1.0, 0.0, 1.0), Vector3(0.0, 1.0, 1.0), Vector3(0.0, 1.0, 0.0)]
+		}
+	]
+}
+
+## Two vertical side triangles on the lower sides of the inner corner block.
+const INNER_CORNER_SIDE_TRIANGLES: Dictionary = {
+	BlockShape.INNER_CORNER_NORTH_WEST: [
+		{
+			"normal": Vector3(0.0, 0.0, -1.0),
+			"neighbor_offset": Vector3i(0, 0, -1),
+			"vertices": [Vector3(1.0, 0.0, 0.0), Vector3(1.0, 1.0, 0.0), Vector3(0.0, 0.0, 0.0)]
+		},
+		{
+			"normal": Vector3(-1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(-1, 0, 0),
+			"vertices": [Vector3(0.0, 0.0, 0.0), Vector3(0.0, 1.0, 1.0), Vector3(0.0, 0.0, 1.0)]
+		}
+	],
+	BlockShape.INNER_CORNER_NORTH_EAST: [
+		{
+			"normal": Vector3(0.0, 0.0, -1.0),
+			"neighbor_offset": Vector3i(0, 0, -1),
+			"vertices": [Vector3(0.0, 0.0, 0.0), Vector3(1.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0)]
+		},
+		{
+			"normal": Vector3(1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(1, 0, 0),
+			"vertices": [Vector3(1.0, 0.0, 0.0), Vector3(1.0, 0.0, 1.0), Vector3(1.0, 1.0, 1.0)]
+		}
+	],
+	BlockShape.INNER_CORNER_SOUTH_WEST: [
+		{
+			"normal": Vector3(0.0, 0.0, 1.0),
+			"neighbor_offset": Vector3i(0, 0, 1),
+			"vertices": [Vector3(0.0, 0.0, 1.0), Vector3(1.0, 1.0, 1.0), Vector3(1.0, 0.0, 1.0)]
+		},
+		{
+			"normal": Vector3(-1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(-1, 0, 0),
+			"vertices": [Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0)]
+		}
+	],
+	BlockShape.INNER_CORNER_SOUTH_EAST: [
+		{
+			"normal": Vector3(0.0, 0.0, 1.0),
+			"neighbor_offset": Vector3i(0, 0, 1),
+			"vertices": [Vector3(1.0, 0.0, 1.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 1.0, 1.0)]
+		},
+		{
+			"normal": Vector3(1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(1, 0, 0),
+			"vertices": [Vector3(1.0, 0.0, 1.0), Vector3(1.0, 1.0, 0.0), Vector3(1.0, 0.0, 0.0)]
+		}
+	]
+}
+
+## -----------------------------------------------------------------------------
+## Outer Corner Slope Mesh Topology
+## -----------------------------------------------------------------------------
+## Two sloped top triangles meeting at the outward diagonal ridge.
+const OUTER_CORNER_TOP_TRIANGLES: Dictionary = {
+	BlockShape.OUTER_CORNER_NORTH_WEST: [
+		{
+			"normal": Vector3(0.70710678, 0.70710678, 0.0),
+			"vertices": [Vector3(0.0, 1.0, 0.0), Vector3(1.0, 0.0, 0.0), Vector3(1.0, 0.0, 1.0)]
+		},
+		{
+			"normal": Vector3(0.0, 0.70710678, 0.70710678),
+			"vertices": [Vector3(0.0, 1.0, 0.0), Vector3(1.0, 0.0, 1.0), Vector3(0.0, 0.0, 1.0)]
+		}
+	],
+	BlockShape.OUTER_CORNER_NORTH_EAST: [
+		{
+			"normal": Vector3(-0.70710678, 0.70710678, 0.0),
+			"vertices": [Vector3(1.0, 1.0, 0.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, 0.0)]
+		},
+		{
+			"normal": Vector3(0.0, 0.70710678, 0.70710678),
+			"vertices": [Vector3(1.0, 1.0, 0.0), Vector3(1.0, 0.0, 1.0), Vector3(0.0, 0.0, 1.0)]
+		}
+	],
+	BlockShape.OUTER_CORNER_SOUTH_WEST: [
+		{
+			"normal": Vector3(0.70710678, 0.70710678, 0.0),
+			"vertices": [Vector3(0.0, 1.0, 1.0), Vector3(1.0, 0.0, 0.0), Vector3(1.0, 0.0, 1.0)]
+		},
+		{
+			"normal": Vector3(0.0, 0.70710678, -0.70710678),
+			"vertices": [Vector3(0.0, 1.0, 1.0), Vector3(0.0, 0.0, 0.0), Vector3(1.0, 0.0, 0.0)]
+		}
+	],
+	BlockShape.OUTER_CORNER_SOUTH_EAST: [
+		{
+			"normal": Vector3(0.0, 0.70710678, -0.70710678),
+			"vertices": [Vector3(1.0, 1.0, 1.0), Vector3(0.0, 0.0, 0.0), Vector3(1.0, 0.0, 0.0)]
+		},
+		{
+			"normal": Vector3(-0.70710678, 0.70710678, 0.0),
+			"vertices": [Vector3(1.0, 1.0, 1.0), Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, 0.0)]
+		}
+	]
+}
+
+## Two vertical side triangles on the higher sides of the outer corner block.
+const OUTER_CORNER_SIDE_TRIANGLES: Dictionary = {
+	BlockShape.OUTER_CORNER_NORTH_WEST: [
+		{
+			"normal": Vector3(0.0, 0.0, -1.0),
+			"neighbor_offset": Vector3i(0, 0, -1),
+			"vertices": [Vector3(0.0, 0.0, 0.0), Vector3(1.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0)]
+		},
+		{
+			"normal": Vector3(-1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(-1, 0, 0),
+			"vertices": [Vector3(0.0, 0.0, 1.0), Vector3(0.0, 0.0, 0.0), Vector3(0.0, 1.0, 0.0)]
+		}
+	],
+	BlockShape.OUTER_CORNER_NORTH_EAST: [
+		{
+			"normal": Vector3(0.0, 0.0, -1.0),
+			"neighbor_offset": Vector3i(0, 0, -1),
+			"vertices": [Vector3(1.0, 0.0, 0.0), Vector3(1.0, 1.0, 0.0), Vector3(0.0, 0.0, 0.0)]
+		},
+		{
+			"normal": Vector3(1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(1, 0, 0),
+			"vertices": [Vector3(1.0, 0.0, 0.0), Vector3(1.0, 0.0, 1.0), Vector3(1.0, 1.0, 0.0)]
+		}
+	],
+	BlockShape.OUTER_CORNER_SOUTH_WEST: [
+		{
+			"normal": Vector3(0.0, 0.0, 1.0),
+			"neighbor_offset": Vector3i(0, 0, 1),
+			"vertices": [Vector3(0.0, 0.0, 1.0), Vector3(0.0, 1.0, 1.0), Vector3(1.0, 0.0, 1.0)]
+		},
+		{
+			"normal": Vector3(-1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(-1, 0, 0),
+			"vertices": [Vector3(0.0, 0.0, 0.0), Vector3(0.0, 1.0, 1.0), Vector3(0.0, 0.0, 1.0)]
+		}
+	],
+	BlockShape.OUTER_CORNER_SOUTH_EAST: [
+		{
+			"normal": Vector3(0.0, 0.0, 1.0),
+			"neighbor_offset": Vector3i(0, 0, 1),
+			"vertices": [Vector3(1.0, 0.0, 1.0), Vector3(0.0, 0.0, 1.0), Vector3(1.0, 1.0, 1.0)]
+		},
+		{
+			"normal": Vector3(1.0, 0.0, 0.0),
+			"neighbor_offset": Vector3i(1, 0, 0),
+			"vertices": [Vector3(1.0, 0.0, 1.0), Vector3(1.0, 1.0, 1.0), Vector3(1.0, 0.0, 0.0)]
+		}
+	]
+}
+
+## -----------------------------------------------------------------------------
 ## Standard Registered Block Identifiers
 ## -----------------------------------------------------------------------------
 const BLOCK_ID_AIR: int = 0
@@ -297,6 +516,54 @@ const BLOCK_ID_SAND_RAMP_NORTH: int = 20
 const BLOCK_ID_SAND_RAMP_SOUTH: int = 21
 const BLOCK_ID_SAND_RAMP_EAST: int = 22
 const BLOCK_ID_SAND_RAMP_WEST: int = 23
+
+## Grass Inner Corner Slopes (IDs 24..27)
+const BLOCK_ID_GRASS_INNER_CORNER_NW: int = 24
+const BLOCK_ID_GRASS_INNER_CORNER_NE: int = 25
+const BLOCK_ID_GRASS_INNER_CORNER_SW: int = 26
+const BLOCK_ID_GRASS_INNER_CORNER_SE: int = 27
+
+## Dirt Inner Corner Slopes (IDs 28..31)
+const BLOCK_ID_DIRT_INNER_CORNER_NW: int = 28
+const BLOCK_ID_DIRT_INNER_CORNER_NE: int = 29
+const BLOCK_ID_DIRT_INNER_CORNER_SW: int = 30
+const BLOCK_ID_DIRT_INNER_CORNER_SE: int = 31
+
+## Stone Inner Corner Slopes (IDs 32..35)
+const BLOCK_ID_STONE_INNER_CORNER_NW: int = 32
+const BLOCK_ID_STONE_INNER_CORNER_NE: int = 33
+const BLOCK_ID_STONE_INNER_CORNER_SW: int = 34
+const BLOCK_ID_STONE_INNER_CORNER_SE: int = 35
+
+## Sand Inner Corner Slopes (IDs 36..39)
+const BLOCK_ID_SAND_INNER_CORNER_NW: int = 36
+const BLOCK_ID_SAND_INNER_CORNER_NE: int = 37
+const BLOCK_ID_SAND_INNER_CORNER_SW: int = 38
+const BLOCK_ID_SAND_INNER_CORNER_SE: int = 39
+
+## Grass Outer Corner Slopes (IDs 40..43)
+const BLOCK_ID_GRASS_OUTER_CORNER_NW: int = 40
+const BLOCK_ID_GRASS_OUTER_CORNER_NE: int = 41
+const BLOCK_ID_GRASS_OUTER_CORNER_SW: int = 42
+const BLOCK_ID_GRASS_OUTER_CORNER_SE: int = 43
+
+## Dirt Outer Corner Slopes (IDs 44..47)
+const BLOCK_ID_DIRT_OUTER_CORNER_NW: int = 44
+const BLOCK_ID_DIRT_OUTER_CORNER_NE: int = 45
+const BLOCK_ID_DIRT_OUTER_CORNER_SW: int = 46
+const BLOCK_ID_DIRT_OUTER_CORNER_SE: int = 47
+
+## Stone Outer Corner Slopes (IDs 48..51)
+const BLOCK_ID_STONE_OUTER_CORNER_NW: int = 48
+const BLOCK_ID_STONE_OUTER_CORNER_NE: int = 49
+const BLOCK_ID_STONE_OUTER_CORNER_SW: int = 50
+const BLOCK_ID_STONE_OUTER_CORNER_SE: int = 51
+
+## Sand Outer Corner Slopes (IDs 52..55)
+const BLOCK_ID_SAND_OUTER_CORNER_NW: int = 52
+const BLOCK_ID_SAND_OUTER_CORNER_NE: int = 53
+const BLOCK_ID_SAND_OUTER_CORNER_SW: int = 54
+const BLOCK_ID_SAND_OUTER_CORNER_SE: int = 55
 
 ## -----------------------------------------------------------------------------
 ## World Generation Defaults

@@ -31,6 +31,7 @@ var _air_definition: BlockDefinition = null
 func _init() -> void:
 	_register_default_palette()
 	_register_ramp_palette()
+	_register_corner_palette()
 
 ## Registers a custom block definition into the registry.
 func register_block(definition: BlockDefinition) -> void:
@@ -65,12 +66,12 @@ func is_face_occluded_by(neighbor_id: int, from_face: Constants.CubeFace) -> boo
 	if neighbor_def.shape == Constants.BlockShape.CUBE:
 		return not neighbor_def.is_transparent
 
-	# Neighbor is a directional ramp:
-	# 1. Ramp bottom is on -Y (horizontal plane y=0), so looking UP (+Y) into ramp bottom is occluded.
+	# Neighbor is a slope/ramp/corner:
+	# 1. All slope/wedge/corner blocks have their bottom on -Y (y=0), so looking UP (+Y) into bottom is occluded.
 	if from_face == Constants.CubeFace.TOP:
 		return true
 
-	# 2. Ramp back wall is a full 1x1 quad. Occluded if looking directly into the back wall.
+	# 2. Straight ramp back wall is a full 1x1 quad:
 	match neighbor_def.shape:
 		Constants.BlockShape.RAMP_NORTH:
 			return from_face == Constants.CubeFace.NORTH
@@ -80,6 +81,16 @@ func is_face_occluded_by(neighbor_id: int, from_face: Constants.CubeFace) -> boo
 			return from_face == Constants.CubeFace.EAST
 		Constants.BlockShape.RAMP_WEST:
 			return from_face == Constants.CubeFace.WEST
+
+		# 3. Inner corner has two full 1x1 vertical back walls:
+		Constants.BlockShape.INNER_CORNER_NORTH_WEST:
+			return from_face == Constants.CubeFace.SOUTH or from_face == Constants.CubeFace.EAST
+		Constants.BlockShape.INNER_CORNER_NORTH_EAST:
+			return from_face == Constants.CubeFace.SOUTH or from_face == Constants.CubeFace.WEST
+		Constants.BlockShape.INNER_CORNER_SOUTH_WEST:
+			return from_face == Constants.CubeFace.NORTH or from_face == Constants.CubeFace.EAST
+		Constants.BlockShape.INNER_CORNER_SOUTH_EAST:
+			return from_face == Constants.CubeFace.NORTH or from_face == Constants.CubeFace.WEST
 
 	return false
 
@@ -257,4 +268,94 @@ func _register_ramp_palette() -> void:
 		def.bottom_color = COLOR_SAND
 		def.side_color = COLOR_SAND
 		register_block(def)
+
+## Registers inner corner and outer corner definitions for standard terrain materials.
+func _register_corner_palette() -> void:
+	var inner_shapes: Array[Constants.BlockShape] = [
+		Constants.BlockShape.INNER_CORNER_NORTH_WEST,
+		Constants.BlockShape.INNER_CORNER_NORTH_EAST,
+		Constants.BlockShape.INNER_CORNER_SOUTH_WEST,
+		Constants.BlockShape.INNER_CORNER_SOUTH_EAST
+	]
+	var outer_shapes: Array[Constants.BlockShape] = [
+		Constants.BlockShape.OUTER_CORNER_NORTH_WEST,
+		Constants.BlockShape.OUTER_CORNER_NORTH_EAST,
+		Constants.BlockShape.OUTER_CORNER_SOUTH_WEST,
+		Constants.BlockShape.OUTER_CORNER_SOUTH_EAST
+	]
+	var corner_suffixes: Array[String] = ["NW", "NE", "SW", "SE"]
+
+	var materials: Array[Dictionary] = [
+		{
+			"name": "Grass",
+			"base_id": Constants.BLOCK_ID_GRASS,
+			"inner_base_id": Constants.BLOCK_ID_GRASS_INNER_CORNER_NW,
+			"outer_base_id": Constants.BLOCK_ID_GRASS_OUTER_CORNER_NW,
+			"hardness": HARDNESS_SOFT,
+			"top": COLOR_GRASS_TOP,
+			"bottom": COLOR_DIRT,
+			"side": COLOR_GRASS_SIDE
+		},
+		{
+			"name": "Dirt",
+			"base_id": Constants.BLOCK_ID_DIRT,
+			"inner_base_id": Constants.BLOCK_ID_DIRT_INNER_CORNER_NW,
+			"outer_base_id": Constants.BLOCK_ID_DIRT_OUTER_CORNER_NW,
+			"hardness": HARDNESS_SOFT,
+			"top": COLOR_DIRT,
+			"bottom": COLOR_DIRT,
+			"side": COLOR_DIRT
+		},
+		{
+			"name": "Stone",
+			"base_id": Constants.BLOCK_ID_STONE,
+			"inner_base_id": Constants.BLOCK_ID_STONE_INNER_CORNER_NW,
+			"outer_base_id": Constants.BLOCK_ID_STONE_OUTER_CORNER_NW,
+			"hardness": HARDNESS_HARD,
+			"top": COLOR_STONE,
+			"bottom": COLOR_STONE,
+			"side": COLOR_STONE
+		},
+		{
+			"name": "Sand",
+			"base_id": Constants.BLOCK_ID_SAND,
+			"inner_base_id": Constants.BLOCK_ID_SAND_INNER_CORNER_NW,
+			"outer_base_id": Constants.BLOCK_ID_SAND_OUTER_CORNER_NW,
+			"hardness": HARDNESS_SOFT,
+			"top": COLOR_SAND,
+			"bottom": COLOR_SAND,
+			"side": COLOR_SAND
+		}
+	]
+
+	for mat: Dictionary in materials:
+		# Inner corners (IDs base+0..base+3)
+		for i: int in range(4):
+			var def: BlockDefinition = BlockDefinition.new()
+			def.id = mat["inner_base_id"] + i
+			def.name = StringName(mat["name"] + " Inner Corner " + corner_suffixes[i])
+			def.is_solid = true
+			def.is_transparent = true
+			def.shape = inner_shapes[i]
+			def.base_block_id = mat["base_id"]
+			def.hardness = mat["hardness"]
+			def.top_color = mat["top"]
+			def.bottom_color = mat["bottom"]
+			def.side_color = mat["side"]
+			register_block(def)
+
+		# Outer corners (IDs base+0..base+3)
+		for i: int in range(4):
+			var def: BlockDefinition = BlockDefinition.new()
+			def.id = mat["outer_base_id"] + i
+			def.name = StringName(mat["name"] + " Outer Corner " + corner_suffixes[i])
+			def.is_solid = true
+			def.is_transparent = true
+			def.shape = outer_shapes[i]
+			def.base_block_id = mat["base_id"]
+			def.hardness = mat["hardness"]
+			def.top_color = mat["top"]
+			def.bottom_color = mat["bottom"]
+			def.side_color = mat["side"]
+			register_block(def)
 
