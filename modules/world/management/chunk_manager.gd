@@ -78,22 +78,23 @@ func load_chunks_around_coord(center_coord: Vector3i, radius_chunks: int, is_syn
 
 	for offset_z: int in range(-radius_chunks, radius_chunks + 1):
 		for offset_x: int in range(-radius_chunks, radius_chunks + 1):
-			var target_coord: Vector3i = Vector3i(
-				center_coord.x + offset_x,
-				center_coord.y,
-				center_coord.z + offset_z
-			)
+			for chunk_y: int in range(config.min_chunk_y, config.max_chunk_y + 1):
+				var target_coord: Vector3i = Vector3i(
+					center_coord.x + offset_x,
+					chunk_y,
+					center_coord.z + offset_z
+				)
 
-			_data_mutex.lock()
-			var already_has_data: bool = _chunk_data_map.has(target_coord)
-			_data_mutex.unlock()
+				_data_mutex.lock()
+				var already_has_data: bool = _chunk_data_map.has(target_coord)
+				_data_mutex.unlock()
 
-			_queue_mutex.lock()
-			var already_pending: bool = _pending_surface_coords.has(target_coord)
-			_queue_mutex.unlock()
+				_queue_mutex.lock()
+				var already_pending: bool = _pending_surface_coords.has(target_coord)
+				_queue_mutex.unlock()
 
-			if not already_has_data and not already_pending:
-				needed_coords.append(target_coord)
+				if not already_has_data and not already_pending:
+					needed_coords.append(target_coord)
 
 	if needed_coords.is_empty():
 		return
@@ -177,12 +178,13 @@ func _thread_generate_surface_and_mesh(coord: Vector3i) -> void:
 	})
 	_results_mutex.unlock()
 
-	# Enqueue for background subsurface completion (Phase B)
-	_queue_mutex.lock()
-	if not _pending_subsurface_coords.has(coord) and not _stop_worker:
-		_pending_subsurface_coords[coord] = true
-		_subsurface_queue.append(coord)
-	_queue_mutex.unlock()
+	# Enqueue for background subsurface completion (Phase B) only if not already fully generated
+	if data.is_surface_only():
+		_queue_mutex.lock()
+		if not _pending_subsurface_coords.has(coord) and not _stop_worker:
+			_pending_subsurface_coords[coord] = true
+			_subsurface_queue.append(coord)
+		_queue_mutex.unlock()
 
 ## Phase B: Fills subterranean layers beneath the surface foundation in the background.
 func _thread_fill_subsurface(coord: Vector3i) -> void:
@@ -235,8 +237,18 @@ func _apply_completed_chunk_meshes() -> void:
 
 		_apply_chunk_view(coord, mesh, shape)
 
-## Attaches or updates a ChunkView node with its mesh and physics collider
+## Attaches or updates a ChunkView node with its mesh and physics collider.
+## Skips allocating ChunkView instances for empty/homogeneous chunks that produce no geometry.
 func _apply_chunk_view(coord: Vector3i, mesh: ArrayMesh, shape: Shape3D = null) -> void:
+	if mesh == null:
+		if _chunk_view_map.has(coord):
+			var old_view: ChunkView = _chunk_view_map[coord]
+			_chunk_view_map.erase(coord)
+			old_view.queue_free()
+		if EventBus != null:
+			EventBus.chunk_loaded.emit(coord)
+		return
+
 	var view: ChunkView = null
 	if _chunk_view_map.has(coord):
 		view = _chunk_view_map[coord]
@@ -268,6 +280,9 @@ func _create_and_mesh_chunk_view(coord: Vector3i) -> void:
 
 	if not has_data or data == null:
 		return
+
+	if data.is_homogeneous_solid():
+		data._promote_to_buffer()
 
 	var mesh_and_shape: Dictionary = ChunkMesher.build_chunk_mesh_and_shape(
 		data,
@@ -369,6 +384,13 @@ func _remesh_neighbors_if_boundary(chunk_coord: Vector3i, local_coord: Vector3i)
 	# East boundary (+X)
 	elif local_coord.x == Constants.CHUNK_WIDTH_VOXELS - 1:
 		_create_and_mesh_chunk_view(chunk_coord + Vector3i(1, 0, 0))
+
+	# Bottom boundary (-Y)
+	if local_coord.y == 0:
+		_create_and_mesh_chunk_view(chunk_coord + Vector3i(0, -1, 0))
+	# Top boundary (+Y)
+	elif local_coord.y == Constants.CHUNK_HEIGHT_VOXELS - 1:
+		_create_and_mesh_chunk_view(chunk_coord + Vector3i(0, 1, 0))
 
 	# North boundary (-Z)
 	if local_coord.z == 0:

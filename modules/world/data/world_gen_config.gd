@@ -7,6 +7,8 @@ extends Resource
 @export var world_seed: int = Constants.DEFAULT_WORLD_SEED
 @export var chunk_dimensions: Vector3i = Constants.CHUNK_SIZE_VOXELS
 @export var load_radius_chunks: int = Constants.DEFAULT_LOAD_RADIUS_CHUNKS
+@export var min_chunk_y: int = 0
+@export var max_chunk_y: int = 2
 
 @export var noise_frequency: float = Constants.DEFAULT_NOISE_FREQUENCY
 @export var noise_fractal_octaves: int = Constants.DEFAULT_NOISE_OCTAVES

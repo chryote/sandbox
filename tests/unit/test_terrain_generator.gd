@@ -43,7 +43,7 @@ static func run_all() -> bool:
 	for x: int in range(-50, 50, 10):
 		for z: int in range(-50, 50, 10):
 			var height: int = generator.get_terrain_height_at(x, z)
-			if height < 0 or height >= ConstantsScript.CHUNK_HEIGHT_VOXELS:
+			if height < 0 or height >= ConstantsScript.WORLD_MAX_HEIGHT_VOXELS:
 				printerr("FAIL: Terrain height %d out of bounds at (%d, %d)" % [height, x, z])
 				return false
 
@@ -99,6 +99,13 @@ static func run_all() -> bool:
 				if shell_chunk.get_block(p) != full_chunk.get_block(p):
 					printerr("FAIL: Two-phase chunk mismatch at %s (shell: %d, full: %d)" % [p, shell_chunk.get_block(p), full_chunk.get_block(p)])
 					return false
+
+	# Test homogeneous envelope skipping for sky sub-chunk
+	var sky_chunk = ChunkDataScript.new(Vector3i(0, 3, 0)) # y = 48..63
+	generator.generate_surface_shell(sky_chunk)
+	if not sky_chunk.is_homogeneous_air() or not sky_chunk.is_full():
+		printerr("FAIL: Sky chunk (0, 3, 0) should be classified as homogeneous air and FULL")
+		return false
 
 	# 5. Test Ramp Landing Obstruction Suppression (Approach B)
 	# When a neighbor cell contains a straight ramp sloping into this cell's lowest edge,

@@ -49,7 +49,7 @@ func get_terrain_height_at(world_x: int, world_z: int) -> int:
 		height_factor = t * t * (3.0 - 2.0 * t)
 
 	var target_height: int = biome.base_elevation_voxels + floori(height_factor * float(biome.elevation_amplitude_voxels))
-	var max_y: int = Constants.CHUNK_HEIGHT_VOXELS - 1
+	var max_y: int = Constants.WORLD_MAX_HEIGHT_VOXELS - 1
 	return clampi(target_height, BEDROCK_LAYER_Y, max_y)
 
 ## Checks whether the cell at (cell_x, cell_z) resolves to a straight directional ramp
@@ -240,12 +240,36 @@ func _resolve_surface_block_id(
 	# 2 or more drops (corners / diagonal steps): keep flat full block
 	return surface_base_id
 
-## Generates only the visible surface layer and its immediate foundation floor.
-## This allows the engine to mesh and render the visible landscape immediately.
+## Generates only the visible surface layer and its immediate foundation floor for a 16x16x16 sub-chunk.
+## Utilizes an O(1) envelope pre-pass to skip 100% air or 100% stone chunks instantly.
 func generate_surface_shell(chunk_data: ChunkData) -> void:
 	var biome: BiomeDefinition = config.primary_biome
 	var chunk_origin_x: int = chunk_data.chunk_coord.x * Constants.CHUNK_WIDTH_VOXELS
+	var chunk_origin_y: int = chunk_data.chunk_coord.y * Constants.CHUNK_HEIGHT_VOXELS
 	var chunk_origin_z: int = chunk_data.chunk_coord.z * Constants.CHUNK_DEPTH_VOXELS
+	var chunk_max_y: int = chunk_origin_y + Constants.CHUNK_HEIGHT_VOXELS - 1
+
+	# O(1) Envelope Pre-pass: Sample 5 points (4 corners + center) across chunk column footprint
+	var h00: int = get_terrain_height_at(chunk_origin_x, chunk_origin_z)
+	var h10: int = get_terrain_height_at(chunk_origin_x + Constants.CHUNK_WIDTH_VOXELS - 1, chunk_origin_z)
+	var h01: int = get_terrain_height_at(chunk_origin_x, chunk_origin_z + Constants.CHUNK_DEPTH_VOXELS - 1)
+	var h11: int = get_terrain_height_at(chunk_origin_x + Constants.CHUNK_WIDTH_VOXELS - 1, chunk_origin_z + Constants.CHUNK_DEPTH_VOXELS - 1)
+	var h_mid: int = get_terrain_height_at(chunk_origin_x + (Constants.CHUNK_WIDTH_VOXELS / 2), chunk_origin_z + (Constants.CHUNK_DEPTH_VOXELS / 2))
+
+	var min_h: int = mini(mini(h00, h10), mini(h01, mini(h11, h_mid)))
+	var max_h: int = maxi(maxi(h00, h10), maxi(h01, maxi(h11, h_mid)))
+
+	# 1. Sky Chunk (100% Air): entire sub-chunk is above terrain surface and shims
+	if chunk_origin_y > max_h + 1:
+		chunk_data.set_homogeneous(Constants.BLOCK_ID_AIR)
+		chunk_data.gen_state = ChunkData.GenState.FULL
+		return
+
+	# 2. Deep Solid Stone (100% Stone): entire sub-chunk is below dirt layer and above bedrock
+	if chunk_max_y < (min_h - biome.subsurface_depth_layers) and chunk_origin_y > BEDROCK_LAYER_Y:
+		chunk_data.set_homogeneous(biome.deep_block_id)
+		chunk_data.gen_state = ChunkData.GenState.FULL
+		return
 
 	for z: int in range(Constants.CHUNK_DEPTH_VOXELS):
 		var world_z: int = chunk_origin_z + z
@@ -273,27 +297,29 @@ func generate_surface_shell(chunk_data: ChunkData) -> void:
 
 			var inner_offset: int = -1
 			var outer_offset: int = -1
-			if clamped_height + 1 < Constants.CHUNK_HEIGHT_VOXELS:
-				inner_offset = _resolve_inner_corner_offset(
+			var shim_world_y: int = clamped_height + 1
+
+			inner_offset = _resolve_inner_corner_offset(
+				diff_n, diff_s, diff_e, diff_w,
+				h_nw, h_ne, h_sw, h_se,
+				clamped_height,
+				world_x, world_z
+			)
+			if inner_offset == -1:
+				outer_offset = _resolve_outer_corner_offset(
 					diff_n, diff_s, diff_e, diff_w,
 					h_nw, h_ne, h_sw, h_se,
 					clamped_height,
 					world_x, world_z
 				)
-				if inner_offset == -1:
-					outer_offset = _resolve_outer_corner_offset(
-						diff_n, diff_s, diff_e, diff_w,
-						h_nw, h_ne, h_sw, h_se,
-						clamped_height,
-						world_x, world_z
-					)
 
 			var has_inner_corner: bool = (inner_offset != -1)
 			var has_outer_corner: bool = (outer_offset != -1)
 
 			# 1. Corner shim layer at clamped_height + 1
-			if clamped_height + 1 < Constants.CHUNK_HEIGHT_VOXELS:
-				var shim_pos: Vector3i = Vector3i(x, clamped_height + 1, z)
+			if shim_world_y >= chunk_origin_y and shim_world_y <= chunk_max_y:
+				var local_shim_y: int = shim_world_y - chunk_origin_y
+				var shim_pos: Vector3i = Vector3i(x, local_shim_y, z)
 				if has_inner_corner:
 					var inner_id: int = _get_inner_corner_block_id(biome.surface_block_id, inner_offset)
 					chunk_data.set_block(shim_pos, inner_id)
@@ -302,24 +328,28 @@ func generate_surface_shell(chunk_data: ChunkData) -> void:
 					chunk_data.set_block(shim_pos, outer_id)
 
 			# 2. Surface layer at clamped_height
-			var surf_pos: Vector3i = Vector3i(x, clamped_height, z)
-			if clamped_height == BEDROCK_LAYER_Y:
-				chunk_data.set_block(surf_pos, biome.bedrock_block_id)
-			elif has_inner_corner or has_outer_corner:
-				chunk_data.set_block(surf_pos, biome.subsurface_block_id)
-			else:
-				var surface_block_id: int = _resolve_surface_block_id(
-					biome.surface_block_id,
-					diff_n, diff_s, diff_e, diff_w,
-					world_x, world_z
-				)
-				chunk_data.set_block(surf_pos, surface_block_id)
+			var surf_world_y: int = clamped_height
+			if surf_world_y >= chunk_origin_y and surf_world_y <= chunk_max_y:
+				var local_surf_y: int = surf_world_y - chunk_origin_y
+				var surf_pos: Vector3i = Vector3i(x, local_surf_y, z)
+				if clamped_height == BEDROCK_LAYER_Y:
+					chunk_data.set_block(surf_pos, biome.bedrock_block_id)
+				elif has_inner_corner or has_outer_corner:
+					chunk_data.set_block(surf_pos, biome.subsurface_block_id)
+				else:
+					var surface_block_id: int = _resolve_surface_block_id(
+						biome.surface_block_id,
+						diff_n, diff_s, diff_e, diff_w,
+						world_x, world_z
+					)
+					chunk_data.set_block(surf_pos, surface_block_id)
 
 			# 3. Solid foundation floor layer directly below surface (at clamped_height - 1)
-			var under_y: int = clamped_height - 1
-			if under_y >= BEDROCK_LAYER_Y:
-				var floor_pos: Vector3i = Vector3i(x, under_y, z)
-				if under_y == BEDROCK_LAYER_Y:
+			var under_world_y: int = clamped_height - 1
+			if under_world_y >= BEDROCK_LAYER_Y and under_world_y >= chunk_origin_y and under_world_y <= chunk_max_y:
+				var local_floor_y: int = under_world_y - chunk_origin_y
+				var floor_pos: Vector3i = Vector3i(x, local_floor_y, z)
+				if under_world_y == BEDROCK_LAYER_Y:
 					chunk_data.set_block(floor_pos, biome.bedrock_block_id)
 				else:
 					chunk_data.set_block(floor_pos, biome.subsurface_block_id)
@@ -328,9 +358,15 @@ func generate_surface_shell(chunk_data: ChunkData) -> void:
 
 ## Fills remaining subterranean block layers (deep stone, dirt, bedrock) beneath the surface foundation.
 func fill_subsurface(chunk_data: ChunkData) -> void:
+	if chunk_data.is_homogeneous():
+		chunk_data.gen_state = ChunkData.GenState.FULL
+		return
+
 	var biome: BiomeDefinition = config.primary_biome
 	var chunk_origin_x: int = chunk_data.chunk_coord.x * Constants.CHUNK_WIDTH_VOXELS
+	var chunk_origin_y: int = chunk_data.chunk_coord.y * Constants.CHUNK_HEIGHT_VOXELS
 	var chunk_origin_z: int = chunk_data.chunk_coord.z * Constants.CHUNK_DEPTH_VOXELS
+	var chunk_max_y: int = chunk_origin_y + Constants.CHUNK_HEIGHT_VOXELS - 1
 
 	for z: int in range(Constants.CHUNK_DEPTH_VOXELS):
 		var world_z: int = chunk_origin_z + z
@@ -339,13 +375,16 @@ func fill_subsurface(chunk_data: ChunkData) -> void:
 			var world_x: int = chunk_origin_x + x
 			var clamped_height: int = get_terrain_height_at(world_x, world_z)
 
-			# Fill from bottom bedrock up to clamped_height - 2 (since clamped_height - 1 is foundation floor)
-			var max_sub_y: int = clamped_height - 2
-			for y: int in range(BEDROCK_LAYER_Y, max_sub_y + 1):
-				var local_pos: Vector3i = Vector3i(x, y, z)
-				if y == BEDROCK_LAYER_Y:
+			# Fill from max(BEDROCK_LAYER_Y, chunk_origin_y) up to min(clamped_height - 2, chunk_max_y)
+			var start_world_y: int = maxi(BEDROCK_LAYER_Y, chunk_origin_y)
+			var end_world_y: int = mini(clamped_height - 2, chunk_max_y)
+
+			for world_y: int in range(start_world_y, end_world_y + 1):
+				var local_y: int = world_y - chunk_origin_y
+				var local_pos: Vector3i = Vector3i(x, local_y, z)
+				if world_y == BEDROCK_LAYER_Y:
 					chunk_data.set_block(local_pos, biome.bedrock_block_id)
-				elif y > (clamped_height - biome.subsurface_depth_layers):
+				elif world_y > (clamped_height - biome.subsurface_depth_layers):
 					chunk_data.set_block(local_pos, biome.subsurface_block_id)
 				else:
 					chunk_data.set_block(local_pos, biome.deep_block_id)

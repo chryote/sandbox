@@ -30,31 +30,31 @@ static func test_world_to_voxel() -> bool:
 	return true
 
 static func test_chunk_and_local_mapping() -> bool:
-	# Positive world coordinate (e.g. voxel (35, 10, 50))
-	var voxel_coord: Vector3i = Vector3i(35, 10, 50)
+	# Positive world coordinate with Y spanning into sub-chunk 1 (e.g. voxel (35, 25, 50))
+	var voxel_coord: Vector3i = Vector3i(35, 25, 50)
 	var chunk_coord: Vector3i = VoxelCoordinatesScript.voxel_coord_to_chunk_coord(voxel_coord)
 	var local_coord: Vector3i = VoxelCoordinatesScript.voxel_coord_to_local_coord(voxel_coord)
 
 	# 35 / 16 = chunk 2, local 3 (2*16 + 3 = 35)
-	# 10 / 32 = chunk 0, local 10
+	# 25 / 16 = chunk 1, local 9 (1*16 + 9 = 25)
 	# 50 / 16 = chunk 3, local 2 (3*16 + 2 = 50)
-	var expected_chunk: Vector3i = Vector3i(2, 0, 3)
-	var expected_local: Vector3i = Vector3i(3, 10, 2)
+	var expected_chunk: Vector3i = Vector3i(2, 1, 3)
+	var expected_local: Vector3i = Vector3i(3, 9, 2)
 
 	if chunk_coord != expected_chunk or local_coord != expected_local:
 		printerr("FAIL: test_chunk_and_local_mapping positive failed: chunk=", chunk_coord, " local=", local_coord)
 		return false
 
-	# Negative world coordinate (e.g. voxel (-1, 5, -17))
-	var neg_voxel: Vector3i = Vector3i(-1, 5, -17)
+	# Negative world coordinate spanning negative Y sub-chunk (e.g. voxel (-1, -5, -17))
+	var neg_voxel: Vector3i = Vector3i(-1, -5, -17)
 	var neg_chunk: Vector3i = VoxelCoordinatesScript.voxel_coord_to_chunk_coord(neg_voxel)
 	var neg_local: Vector3i = VoxelCoordinatesScript.voxel_coord_to_local_coord(neg_voxel)
 
 	# -1 / 16 floor = chunk -1, local = posmod(-1, 16) = 15 (-1*16 + 15 = -1)
-	# 5 / 32 floor = chunk 0, local = 5
+	# -5 / 16 floor = chunk -1, local = posmod(-5, 16) = 11 (-1*16 + 11 = -5)
 	# -17 / 16 floor = chunk -2, local = posmod(-17, 16) = 15 (-2*16 + 15 = -17)
-	var expected_neg_chunk: Vector3i = Vector3i(-1, 0, -2)
-	var expected_neg_local: Vector3i = Vector3i(15, 5, 15)
+	var expected_neg_chunk: Vector3i = Vector3i(-1, -1, -2)
+	var expected_neg_local: Vector3i = Vector3i(15, 11, 15)
 
 	if neg_chunk != expected_neg_chunk or neg_local != expected_neg_local:
 		printerr("FAIL: test_chunk_and_local_mapping negative failed: chunk=", neg_chunk, " local=", neg_local)

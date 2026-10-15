@@ -20,7 +20,7 @@ static func _generate_chunk_geometry_arrays(
 	registry: BlockRegistry,
 	neighbor_query_callable: Callable = Callable()
 ) -> Array:
-	if chunk_data == null or chunk_data.is_empty():
+	if chunk_data == null or chunk_data.is_empty() or chunk_data.is_homogeneous():
 		return []
 
 	var vertices: PackedVector3Array = PackedVector3Array()

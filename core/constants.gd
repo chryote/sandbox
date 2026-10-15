@@ -19,11 +19,15 @@ const INV_VOXEL_SIZE: float = 1.0 / VOXEL_SIZE_METERS
 ## Number of voxel columns along the X axis per chunk.
 const CHUNK_WIDTH_VOXELS: int = 16
 
-## Number of voxel layers along the Y axis per chunk.
-const CHUNK_HEIGHT_VOXELS: int = 32
+## Number of voxel layers along the Y axis per chunk (cubic 16x16x16 sub-chunk).
+const CHUNK_HEIGHT_VOXELS: int = 16
 
 ## Number of voxel rows along the Z axis per chunk.
 const CHUNK_DEPTH_VOXELS: int = 16
+
+## World vertical sub-chunk count and total maximum height in voxels.
+const WORLD_HEIGHT_CHUNKS: int = 4
+const WORLD_MAX_HEIGHT_VOXELS: int = CHUNK_HEIGHT_VOXELS * WORLD_HEIGHT_CHUNKS
 
 ## Vector3i representing full chunk dimensions.
 const CHUNK_SIZE_VOXELS: Vector3i = Vector3i(
@@ -32,7 +36,7 @@ const CHUNK_SIZE_VOXELS: Vector3i = Vector3i(
 	CHUNK_DEPTH_VOXELS
 )
 
-## Total count of individual voxels contained in one chunk data buffer.
+## Total count of individual voxels contained in one chunk data buffer (16^3 = 4096).
 const CHUNK_VOXEL_VOLUME: int = CHUNK_WIDTH_VOXELS * CHUNK_HEIGHT_VOXELS * CHUNK_DEPTH_VOXELS
 
 ## Stride along Y axis for flattened 1D array indexing (width * 1).
