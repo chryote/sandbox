@@ -318,10 +318,11 @@ func _apply_chunk_view(coord: Vector3i, mesh: ArrayMesh, shape: Shape3D = null) 
 		else:
 			view.set_occluded(false)
 
-	# If a full 3D chunk view is active in this column, remove any distant 2D LOD shell
-	var col: Vector2i = Vector2i(coord.x, coord.z)
-	if _lod_view_map.has(col):
-		_remove_lod_view(col)
+	# If a full 3D surface chunk view is active in this column, remove any distant 2D LOD shell
+	if not view.is_subterranean:
+		var col: Vector2i = Vector2i(coord.x, coord.z)
+		if _lod_view_map.has(col):
+			_remove_lod_view(col)
 
 	if EventBus != null:
 		EventBus.chunk_loaded.emit(coord)
@@ -512,9 +513,9 @@ func update_lod_around_col(center_col: Vector2i, is_synchronous: bool = false) -
 
 	for dz: int in range(-lod_r, lod_r + 1):
 		for dx: int in range(-lod_r, lod_r + 1):
-			var dist_sq: int = dx * dx + dz * dz
-			# Only columns strictly outside load_radius and within lod_radius
-			if dist_sq > load_r_sq and dist_sq <= lod_r_sq:
+			var cheb_dist: int = maxi(absi(dx), absi(dz))
+			# Only columns strictly outside load_radius square and within lod_radius square
+			if cheb_dist > load_r and cheb_dist <= lod_r:
 				var target_col: Vector2i = Vector2i(center_col.x + dx, center_col.y + dz)
 
 				# Check if column already has an active 3D view
@@ -538,8 +539,8 @@ func update_lod_around_col(center_col: Vector2i, is_synchronous: bool = false) -
 	for col: Vector2i in _lod_view_map:
 		var dx: int = col.x - center_col.x
 		var dz: int = col.y - center_col.y
-		var dist_sq: int = dx * dx + dz * dz
-		if dist_sq > lod_r_sq or dist_sq <= load_r_sq:
+		var cheb_dist: int = maxi(absi(dx), absi(dz))
+		if cheb_dist > lod_r or cheb_dist <= load_r:
 			cols_to_remove.append(col)
 
 	for col: Vector2i in cols_to_remove:

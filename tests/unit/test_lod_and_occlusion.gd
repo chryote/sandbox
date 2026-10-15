@@ -38,22 +38,22 @@ static func test_lod_heightmap_mesher() -> bool:
 	var colors: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
 	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
 
-	# Step 2 across 16 voxels = 9x9 = 81 vertices
-	if vertices.size() != 81:
-		printerr("FAIL: Expected 81 vertices for step 2, got: ", vertices.size())
+	# Step 2 across 16 voxels = 9x9 top surface (81) + 32 skirt quads (128) = 209 vertices
+	if vertices.size() != 209:
+		printerr("FAIL: Expected 209 vertices (surface + skirts) for step 2, got: ", vertices.size())
 		return false
 
-	if normals.size() != 81:
+	if normals.size() != 209:
 		printerr("FAIL: Normals buffer mismatch, got: ", normals.size())
 		return false
 
-	if colors.size() != 81:
+	if colors.size() != 209:
 		printerr("FAIL: Colors buffer mismatch, got: ", colors.size())
 		return false
 
-	# 8x8 quads * 6 indices = 384 indices
-	if indices.size() != 384:
-		printerr("FAIL: Expected 384 indices, got: ", indices.size())
+	# 8x8 quads * 6 indices (384) + 32 skirt quads * 6 indices (192) = 576 indices
+	if indices.size() != 576:
+		printerr("FAIL: Expected 576 indices (surface + skirts), got: ", indices.size())
 		return false
 
 	var material: StandardMaterial3D = mesh.surface_get_material(0) as StandardMaterial3D
