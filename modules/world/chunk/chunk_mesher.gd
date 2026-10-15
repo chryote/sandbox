@@ -14,13 +14,14 @@ const EMPTY_VERTEX_COUNT: int = 0
 ## [param registry]: Block registry used to resolve block properties and colors.
 ## [param neighbor_query_callable]: Optional Callable(world_voxel_pos: Vector3i) -> bool
 ##                                  that returns true if the adjacent voxel in a neighboring chunk is transparent.
-static func build_chunk_mesh(
+## Generates raw geometry arrays (vertices, normals, UVs, colors, indices) from chunk voxels.
+static func _generate_chunk_geometry_arrays(
 	chunk_data: ChunkData,
 	registry: BlockRegistry,
 	neighbor_query_callable: Callable = Callable()
-) -> ArrayMesh:
+) -> Array:
 	if chunk_data == null or chunk_data.is_empty():
-		return null
+		return []
 
 	var vertices: PackedVector3Array = PackedVector3Array()
 	var normals: PackedVector3Array = PackedVector3Array()
@@ -78,7 +79,7 @@ static func build_chunk_mesh(
 					)
 
 	if vertices.size() == EMPTY_VERTEX_COUNT:
-		return null
+		return []
 
 	var mesh_arrays: Array = []
 	mesh_arrays.resize(Mesh.ARRAY_MAX)
@@ -87,11 +88,21 @@ static func build_chunk_mesh(
 	mesh_arrays[Mesh.ARRAY_TEX_UV] = uvs
 	mesh_arrays[Mesh.ARRAY_COLOR] = colors
 	mesh_arrays[Mesh.ARRAY_INDEX] = indices
+	return mesh_arrays
+
+## Builds an ArrayMesh for a given ChunkData using directional face culling.
+static func build_chunk_mesh(
+	chunk_data: ChunkData,
+	registry: BlockRegistry,
+	neighbor_query_callable: Callable = Callable()
+) -> ArrayMesh:
+	var mesh_arrays: Array = _generate_chunk_geometry_arrays(chunk_data, registry, neighbor_query_callable)
+	if mesh_arrays.is_empty():
+		return null
 
 	var mesh: ArrayMesh = ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, mesh_arrays)
 
-	# Configure base vertex-colored material with PBR shading
 	var material: StandardMaterial3D = StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
 	material.roughness = 0.8
@@ -99,6 +110,51 @@ static func build_chunk_mesh(
 	mesh.surface_set_material(0, material)
 
 	return mesh
+
+## Builds a ConcavePolygonShape3D collision shape directly from vertex and index buffers.
+## Completely bypasses RenderingServer, ensuring 100% thread safety and zero-stutter inside WorkerThreadPool.
+static func build_collision_shape_from_buffers(vertices: PackedVector3Array, indices: PackedInt32Array) -> ConcavePolygonShape3D:
+	var index_count: int = indices.size()
+	if index_count == 0 or index_count % 3 != 0:
+		return null
+
+	var faces: PackedVector3Array = PackedVector3Array()
+	faces.resize(index_count)
+	for i: int in range(index_count):
+		faces[i] = vertices[indices[i]]
+
+	var shape: ConcavePolygonShape3D = ConcavePolygonShape3D.new()
+	shape.set_faces(faces)
+	return shape
+
+## Builds both an ArrayMesh and its prebaked ConcavePolygonShape3D completely off-thread.
+## Returns a Dictionary with keys "mesh" and "shape".
+static func build_chunk_mesh_and_shape(
+	chunk_data: ChunkData,
+	registry: BlockRegistry,
+	neighbor_query_callable: Callable = Callable()
+) -> Dictionary:
+	var mesh_arrays: Array = _generate_chunk_geometry_arrays(chunk_data, registry, neighbor_query_callable)
+	if mesh_arrays.is_empty():
+		return { "mesh": null, "shape": null }
+
+	var vertices: PackedVector3Array = mesh_arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = mesh_arrays[Mesh.ARRAY_INDEX]
+	var shape: ConcavePolygonShape3D = build_collision_shape_from_buffers(vertices, indices)
+
+	var mesh: ArrayMesh = ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, mesh_arrays)
+
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.roughness = 0.8
+	material.metallic = 0.0
+	mesh.surface_set_material(0, material)
+
+	return {
+		"mesh": mesh,
+		"shape": shape
+	}
 
 ## Resolves the block ID of an adjacent voxel, querying the neighbor callable across chunk boundaries if needed.
 static func _get_neighbor_block_id(

@@ -2,17 +2,34 @@ class_name ChunkData
 extends RefCounted
 
 ## -----------------------------------------------------------------------------
+## Generation Lifecycle States
+## -----------------------------------------------------------------------------
+enum GenState {
+	UNGENERATED = 0,
+	SURFACE_ONLY = 1,
+	FULL = 2
+}
+
+## -----------------------------------------------------------------------------
 ## State
 ## -----------------------------------------------------------------------------
 var chunk_coord: Vector3i = Vector3i.ZERO
 var voxels: PackedByteArray = PackedByteArray()
 var non_air_count: int = 0
+var gen_state: GenState = GenState.UNGENERATED
 
 func _init(p_chunk_coord: Vector3i = Vector3i.ZERO) -> void:
 	chunk_coord = p_chunk_coord
 	voxels.resize(Constants.CHUNK_VOXEL_VOLUME)
 	voxels.fill(Constants.BLOCK_ID_AIR)
 	non_air_count = 0
+	gen_state = GenState.UNGENERATED
+
+func is_surface_only() -> bool:
+	return gen_state == GenState.SURFACE_ONLY
+
+func is_full() -> bool:
+	return gen_state == GenState.FULL
 
 ## Retrieves the block ID at local voxel coordinates [0..15, 0..31, 0..15].
 func get_block(local_pos: Vector3i) -> int:

@@ -240,8 +240,9 @@ func _resolve_surface_block_id(
 	# 2 or more drops (corners / diagonal steps): keep flat full block
 	return surface_base_id
 
-## Fills a ChunkData buffer with terrain voxels according to the configuration.
-func generate_chunk_data(chunk_data: ChunkData) -> void:
+## Generates only the visible surface layer and its immediate foundation floor.
+## This allows the engine to mesh and render the visible landscape immediately.
+func generate_surface_shell(chunk_data: ChunkData) -> void:
 	var biome: BiomeDefinition = config.primary_biome
 	var chunk_origin_x: int = chunk_data.chunk_coord.x * Constants.CHUNK_WIDTH_VOXELS
 	var chunk_origin_z: int = chunk_data.chunk_coord.z * Constants.CHUNK_DEPTH_VOXELS
@@ -251,7 +252,6 @@ func generate_chunk_data(chunk_data: ChunkData) -> void:
 
 		for x: int in range(Constants.CHUNK_WIDTH_VOXELS):
 			var world_x: int = chunk_origin_x + x
-
 			var clamped_height: int = get_terrain_height_at(world_x, world_z)
 
 			# Sample cardinal neighbor heights for slope/ramp placement
@@ -291,40 +291,68 @@ func generate_chunk_data(chunk_data: ChunkData) -> void:
 			var has_inner_corner: bool = (inner_offset != -1)
 			var has_outer_corner: bool = (outer_offset != -1)
 
-			for y: int in range(Constants.CHUNK_HEIGHT_VOXELS):
-				var local_pos: Vector3i = Vector3i(x, y, z)
+			# 1. Corner shim layer at clamped_height + 1
+			if clamped_height + 1 < Constants.CHUNK_HEIGHT_VOXELS:
+				var shim_pos: Vector3i = Vector3i(x, clamped_height + 1, z)
+				if has_inner_corner:
+					var inner_id: int = _get_inner_corner_block_id(biome.surface_block_id, inner_offset)
+					chunk_data.set_block(shim_pos, inner_id)
+				elif has_outer_corner:
+					var outer_id: int = _get_outer_corner_block_id(biome.surface_block_id, outer_offset)
+					chunk_data.set_block(shim_pos, outer_id)
 
-				if y > clamped_height + 1:
-					# Air above ground and slopes
-					chunk_data.set_block(local_pos, Constants.BLOCK_ID_AIR)
-				elif y == clamped_height + 1:
-					# Corner shim layer
-					if has_inner_corner:
-						var inner_id: int = _get_inner_corner_block_id(biome.surface_block_id, inner_offset)
-						chunk_data.set_block(local_pos, inner_id)
-					elif has_outer_corner:
-						var outer_id: int = _get_outer_corner_block_id(biome.surface_block_id, outer_offset)
-						chunk_data.set_block(local_pos, outer_id)
-					else:
-						chunk_data.set_block(local_pos, Constants.BLOCK_ID_AIR)
-				elif y == BEDROCK_LAYER_Y:
-					# Indestructible bottom foundation
+			# 2. Surface layer at clamped_height
+			var surf_pos: Vector3i = Vector3i(x, clamped_height, z)
+			if clamped_height == BEDROCK_LAYER_Y:
+				chunk_data.set_block(surf_pos, biome.bedrock_block_id)
+			elif has_inner_corner or has_outer_corner:
+				chunk_data.set_block(surf_pos, biome.subsurface_block_id)
+			else:
+				var surface_block_id: int = _resolve_surface_block_id(
+					biome.surface_block_id,
+					diff_n, diff_s, diff_e, diff_w,
+					world_x, world_z
+				)
+				chunk_data.set_block(surf_pos, surface_block_id)
+
+			# 3. Solid foundation floor layer directly below surface (at clamped_height - 1)
+			var under_y: int = clamped_height - 1
+			if under_y >= BEDROCK_LAYER_Y:
+				var floor_pos: Vector3i = Vector3i(x, under_y, z)
+				if under_y == BEDROCK_LAYER_Y:
+					chunk_data.set_block(floor_pos, biome.bedrock_block_id)
+				else:
+					chunk_data.set_block(floor_pos, biome.subsurface_block_id)
+
+	chunk_data.gen_state = ChunkData.GenState.SURFACE_ONLY
+
+## Fills remaining subterranean block layers (deep stone, dirt, bedrock) beneath the surface foundation.
+func fill_subsurface(chunk_data: ChunkData) -> void:
+	var biome: BiomeDefinition = config.primary_biome
+	var chunk_origin_x: int = chunk_data.chunk_coord.x * Constants.CHUNK_WIDTH_VOXELS
+	var chunk_origin_z: int = chunk_data.chunk_coord.z * Constants.CHUNK_DEPTH_VOXELS
+
+	for z: int in range(Constants.CHUNK_DEPTH_VOXELS):
+		var world_z: int = chunk_origin_z + z
+
+		for x: int in range(Constants.CHUNK_WIDTH_VOXELS):
+			var world_x: int = chunk_origin_x + x
+			var clamped_height: int = get_terrain_height_at(world_x, world_z)
+
+			# Fill from bottom bedrock up to clamped_height - 2 (since clamped_height - 1 is foundation floor)
+			var max_sub_y: int = clamped_height - 2
+			for y: int in range(BEDROCK_LAYER_Y, max_sub_y + 1):
+				var local_pos: Vector3i = Vector3i(x, y, z)
+				if y == BEDROCK_LAYER_Y:
 					chunk_data.set_block(local_pos, biome.bedrock_block_id)
-				elif y == clamped_height:
-					# Surface layer (flat cube, directional ramp, or foundation under corner shim)
-					if has_inner_corner or has_outer_corner:
-						# Solid foundation below corner shim
-						chunk_data.set_block(local_pos, biome.subsurface_block_id)
-					else:
-						var surface_block_id: int = _resolve_surface_block_id(
-							biome.surface_block_id,
-							diff_n, diff_s, diff_e, diff_w,
-							world_x, world_z
-						)
-						chunk_data.set_block(local_pos, surface_block_id)
 				elif y > (clamped_height - biome.subsurface_depth_layers):
-					# Subsurface layer (e.g. Dirt)
 					chunk_data.set_block(local_pos, biome.subsurface_block_id)
 				else:
-					# Deep subterranean bedrock/stone
 					chunk_data.set_block(local_pos, biome.deep_block_id)
+
+	chunk_data.gen_state = ChunkData.GenState.FULL
+
+## Fills a ChunkData buffer completely with both surface shell and subterranean layers.
+func generate_chunk_data(chunk_data: ChunkData) -> void:
+	generate_surface_shell(chunk_data)
+	fill_subsurface(chunk_data)

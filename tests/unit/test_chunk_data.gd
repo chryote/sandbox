@@ -35,4 +35,19 @@ static func run_all() -> bool:
 		printerr("FAIL: Chunk must be empty after removing block")
 		return false
 
+	# Test GenState lifecycle
+	if chunk.gen_state != ChunkDataScript.GenState.UNGENERATED:
+		printerr("FAIL: Newly created chunk must have gen_state UNGENERATED")
+		return false
+
+	chunk.gen_state = ChunkDataScript.GenState.SURFACE_ONLY
+	if not chunk.is_surface_only() or chunk.is_full():
+		printerr("FAIL: Chunk failed to report is_surface_only")
+		return false
+
+	chunk.gen_state = ChunkDataScript.GenState.FULL
+	if not chunk.is_full() or chunk.is_surface_only():
+		printerr("FAIL: Chunk failed to report is_full")
+		return false
+
 	return true

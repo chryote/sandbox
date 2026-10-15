@@ -62,18 +62,43 @@ static func run_all() -> bool:
 		printerr("FAIL: Too many steep jumps (> 1 block) in smooth terrain: %d / %d" % [steep_jumps, sample_count])
 		return false
 
-	# 4. Test Chunk Generation
-	var chunk = ChunkDataScript.new(Vector3i.ZERO)
-	generator.generate_chunk_data(chunk)
+	# 4. Test Chunk Generation (Two-Phase Surface-First Decoupling)
+	var shell_chunk = ChunkDataScript.new(Vector3i.ZERO)
+	generator.generate_surface_shell(shell_chunk)
+	if shell_chunk.is_empty():
+		printerr("FAIL: Surface shell chunk is empty")
+		return false
+	if not shell_chunk.is_surface_only():
+		printerr("FAIL: Surface shell chunk should report is_surface_only() == true")
+		return false
 
-	if chunk.is_empty():
+	var full_chunk = ChunkDataScript.new(Vector3i.ZERO)
+	generator.generate_chunk_data(full_chunk)
+	if full_chunk.is_empty():
 		printerr("FAIL: Generated chunk is empty")
 		return false
+	if not full_chunk.is_full():
+		printerr("FAIL: Generated chunk should report is_full() == true")
+		return false
 
-	# Bedrock must be present at layer 0
-	if chunk.get_block(Vector3i(0, 0, 0)) != ConstantsScript.BLOCK_ID_BEDROCK:
+	# Bedrock must be present at layer 0 in full chunk
+	if full_chunk.get_block(Vector3i(0, 0, 0)) != ConstantsScript.BLOCK_ID_BEDROCK:
 		printerr("FAIL: Bedrock not found at (0, 0, 0)")
 		return false
+
+	# Filling subsurface on shell chunk should match full_chunk block-for-block
+	generator.fill_subsurface(shell_chunk)
+	if not shell_chunk.is_full():
+		printerr("FAIL: Shell chunk after fill_subsurface should report is_full() == true")
+		return false
+
+	for cz: int in range(ConstantsScript.CHUNK_DEPTH_VOXELS):
+		for cy: int in range(ConstantsScript.CHUNK_HEIGHT_VOXELS):
+			for cx: int in range(ConstantsScript.CHUNK_WIDTH_VOXELS):
+				var p: Vector3i = Vector3i(cx, cy, cz)
+				if shell_chunk.get_block(p) != full_chunk.get_block(p):
+					printerr("FAIL: Two-phase chunk mismatch at %s (shell: %d, full: %d)" % [p, shell_chunk.get_block(p), full_chunk.get_block(p)])
+					return false
 
 	# 5. Test Ramp Landing Obstruction Suppression (Approach B)
 	# When a neighbor cell contains a straight ramp sloping into this cell's lowest edge,

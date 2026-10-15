@@ -1,18 +1,2 @@
-[2026-10-15 10:27:16] [INFO] [Logger] Logger service initialized. Runtime logging directed to res://logs/app.log
-[2026-10-15 10:27:16] [INFO] [WorldGen] ChunkManager initialized with background WorkerThreadPool pipeline.
-[2026-10-15 10:28:09] [INFO] [Player] Emitted mine block request for: (184, 10, 243)
-[2026-10-15 10:28:11] [INFO] [Player] Emitted mine block request for: (186, 10, 243)
-[2026-10-15 10:28:11] [INFO] [Player] Emitted mine block request for: (185, 10, 243)
-[2026-10-15 10:28:12] [INFO] [Player] Emitted mine block request for: (186, 10, 244)
-[2026-10-15 10:28:12] [INFO] [Player] Emitted mine block request for: (185, 10, 244)
-[2026-10-15 10:28:12] [INFO] [Player] Emitted mine block request for: (184, 10, 244)
-[2026-10-15 10:28:13] [INFO] [Player] Emitted mine block request for: (185, 9, 244)
-[2026-10-15 10:28:13] [INFO] [Player] Emitted mine block request for: (186, 9, 244)
-[2026-10-15 10:28:14] [INFO] [Player] Emitted mine block request for: (186, 9, 243)
-[2026-10-15 10:28:14] [INFO] [Player] Emitted mine block request for: (185, 9, 243)
-[2026-10-15 10:28:15] [INFO] [Player] Emitted mine block request for: (186, 8, 244)
-[2026-10-15 10:28:16] [INFO] [Player] Emitted mine block request for: (186, 8, 243)
-[2026-10-15 10:28:16] [INFO] [Player] Emitted mine block request for: (187, 9, 243)
-[2026-10-15 10:28:17] [INFO] [Player] Emitted mine block request for: (186, 7, 243)
-[2026-10-15 10:28:18] [INFO] [Player] Emitted mine block request for: (186, 7, 244)
-[2026-10-15 10:31:11] [INFO] [Player] Emitted mine block request for: (33, 21, 1002)
+[2026-10-15 13:09:07] [INFO] [Logger] Logger service initialized. Runtime logging directed to res://logs/app.log
+[2026-10-15 13:09:07] [INFO] [WorldGen] ChunkManager initialized with background WorkerThreadPool pipeline.

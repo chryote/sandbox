@@ -20,9 +20,11 @@ var _data_mutex: Mutex = Mutex.new()
 var _queue_mutex: Mutex = Mutex.new()
 var _results_mutex: Mutex = Mutex.new()
 
-var _worker_queue: Array[Vector3i] = []      # Pending coordinates to generate
-var _pending_coords: Dictionary = {}         # Vector3i -> bool (currently queued or processing)
-var _completed_queue: Array[Dictionary] = [] # Completed [{ "coord": Vector3i, "mesh": ArrayMesh }]
+var _surface_queue: Array[Vector3i] = []            # High-priority: surface shell generation & meshing
+var _subsurface_queue: Array[Vector3i] = []         # Low-priority / deferred: subterranean fill
+var _pending_surface_coords: Dictionary = {}        # Vector3i -> bool
+var _pending_subsurface_coords: Dictionary = {}     # Vector3i -> bool
+var _completed_queue: Array[Dictionary] = []        # Completed [{ "coord": Vector3i, "mesh": ArrayMesh, "shape": Shape3D }]
 
 var _is_worker_running: bool = false
 var _stop_worker: bool = false
@@ -87,7 +89,7 @@ func load_chunks_around_coord(center_coord: Vector3i, radius_chunks: int, is_syn
 			_data_mutex.unlock()
 
 			_queue_mutex.lock()
-			var already_pending: bool = _pending_coords.has(target_coord)
+			var already_pending: bool = _pending_surface_coords.has(target_coord)
 			_queue_mutex.unlock()
 
 			if not already_has_data and not already_pending:
@@ -109,51 +111,91 @@ func load_chunks_around_coord(center_coord: Vector3i, radius_chunks: int, is_syn
 	else:
 		_queue_mutex.lock()
 		for coord: Vector3i in needed_coords:
-			_pending_coords[coord] = true
-			_worker_queue.append(coord)
+			_pending_surface_coords[coord] = true
+			_surface_queue.append(coord)
 
-		# Re-sort entire worker queue by distance to player center
-		_worker_queue.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		# Re-sort surface queue by distance to player center so closest chunks render first
+		_surface_queue.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
 			return (a - center_coord).length_squared() < (b - center_coord).length_squared()
 		)
 
-		if not _is_worker_running and not _worker_queue.is_empty():
+		if not _is_worker_running and (!_surface_queue.is_empty() or !_subsurface_queue.is_empty()):
 			_is_worker_running = true
 			_current_task_id = WorkerThreadPool.add_task(Callable(self, "_background_worker_loop"))
 		_queue_mutex.unlock()
 
-## Background worker thread loop: continuously processes queued chunks off the main thread
+## Background worker thread loop: continuously processes queued chunks off the main thread.
+## Always prioritizes visible surface chunks (Phase A) before deferred subsurface generation (Phase B).
 func _background_worker_loop() -> void:
 	while true:
 		_queue_mutex.lock()
-		if _stop_worker or _worker_queue.is_empty():
+		if _stop_worker:
 			_is_worker_running = false
 			_queue_mutex.unlock()
 			break
 
-		var coord: Vector3i = _worker_queue.pop_front()
+		var coord: Vector3i = Vector3i.ZERO
+		var is_surface_task: bool = false
+
+		if not _surface_queue.is_empty():
+			coord = _surface_queue.pop_front()
+			is_surface_task = true
+		elif not _subsurface_queue.is_empty():
+			coord = _subsurface_queue.pop_front()
+			is_surface_task = false
+		else:
+			_is_worker_running = false
+			_queue_mutex.unlock()
+			break
 		_queue_mutex.unlock()
 
-		_thread_generate_and_mesh(coord)
+		if is_surface_task:
+			_thread_generate_surface_and_mesh(coord)
+		else:
+			_thread_fill_subsurface(coord)
 
-## Generates terrain data and builds ArrayMesh completely off-thread
-func _thread_generate_and_mesh(coord: Vector3i) -> void:
+## Phase A: Generates surface shell and builds ArrayMesh and ConcavePolygonShape3D completely off-thread.
+func _thread_generate_surface_and_mesh(coord: Vector3i) -> void:
 	var data: ChunkData = ChunkData.new(coord)
-	generator.generate_chunk_data(data)
+	generator.generate_surface_shell(data)
 
 	_data_mutex.lock()
 	_chunk_data_map[coord] = data
 	_data_mutex.unlock()
 
-	var mesh: ArrayMesh = ChunkMesher.build_chunk_mesh(
+	var mesh_and_shape: Dictionary = ChunkMesher.build_chunk_mesh_and_shape(
 		data,
 		registry,
 		Callable(self, "get_block")
 	)
 
 	_results_mutex.lock()
-	_completed_queue.append({ "coord": coord, "mesh": mesh })
+	_completed_queue.append({
+		"coord": coord,
+		"mesh": mesh_and_shape["mesh"],
+		"shape": mesh_and_shape["shape"]
+	})
 	_results_mutex.unlock()
+
+	# Enqueue for background subsurface completion (Phase B)
+	_queue_mutex.lock()
+	if not _pending_subsurface_coords.has(coord) and not _stop_worker:
+		_pending_subsurface_coords[coord] = true
+		_subsurface_queue.append(coord)
+	_queue_mutex.unlock()
+
+## Phase B: Fills subterranean layers beneath the surface foundation in the background.
+func _thread_fill_subsurface(coord: Vector3i) -> void:
+	_data_mutex.lock()
+	var data: ChunkData = _chunk_data_map.get(coord, null)
+	_data_mutex.unlock()
+
+	if data != null and data.is_surface_only():
+		generator.fill_subsurface(data)
+
+	_queue_mutex.lock()
+	_pending_subsurface_coords.erase(coord)
+	_queue_mutex.unlock()
 
 ## Checks if the worker task has completed and cleans up its handle
 func _check_worker_status() -> void:
@@ -164,7 +206,7 @@ func _check_worker_status() -> void:
 			_current_task_id = -1
 
 			# If new tasks arrived while finishing, restart the worker loop
-			if not _worker_queue.is_empty() and not _stop_worker:
+			if (!_surface_queue.is_empty() or !_subsurface_queue.is_empty()) and not _stop_worker:
 				_is_worker_running = true
 				_current_task_id = WorkerThreadPool.add_task(Callable(self, "_background_worker_loop"))
 	_queue_mutex.unlock()
@@ -184,16 +226,17 @@ func _apply_completed_chunk_meshes() -> void:
 
 	for item: Dictionary in chunks_to_apply:
 		var coord: Vector3i = item["coord"]
-		var mesh: ArrayMesh = item["mesh"]
+		var mesh: ArrayMesh = item.get("mesh", null)
+		var shape: Shape3D = item.get("shape", null)
 
 		_queue_mutex.lock()
-		_pending_coords.erase(coord)
+		_pending_surface_coords.erase(coord)
 		_queue_mutex.unlock()
 
-		_apply_chunk_view(coord, mesh)
+		_apply_chunk_view(coord, mesh, shape)
 
 ## Attaches or updates a ChunkView node with its mesh and physics collider
-func _apply_chunk_view(coord: Vector3i, mesh: ArrayMesh) -> void:
+func _apply_chunk_view(coord: Vector3i, mesh: ArrayMesh, shape: Shape3D = null) -> void:
 	var view: ChunkView = null
 	if _chunk_view_map.has(coord):
 		view = _chunk_view_map[coord]
@@ -202,7 +245,7 @@ func _apply_chunk_view(coord: Vector3i, mesh: ArrayMesh) -> void:
 		add_child(view)
 		_chunk_view_map[coord] = view
 
-	view.update_mesh_and_collision(mesh)
+	view.update_mesh_and_collision(mesh, shape)
 
 	if EventBus != null:
 		EventBus.chunk_loaded.emit(coord)
@@ -226,15 +269,22 @@ func _create_and_mesh_chunk_view(coord: Vector3i) -> void:
 	if not has_data or data == null:
 		return
 
-	var mesh: ArrayMesh = ChunkMesher.build_chunk_mesh(
+	var mesh_and_shape: Dictionary = ChunkMesher.build_chunk_mesh_and_shape(
 		data,
 		registry,
 		Callable(self, "get_block")
 	)
-	_apply_chunk_view(coord, mesh)
+	_apply_chunk_view(coord, mesh_and_shape["mesh"], mesh_and_shape["shape"])
 
 ## Unloads and frees a chunk at the specified coordinate.
 func unload_chunk(coord: Vector3i) -> void:
+	_queue_mutex.lock()
+	_pending_surface_coords.erase(coord)
+	_surface_queue.erase(coord)
+	_pending_subsurface_coords.erase(coord)
+	_subsurface_queue.erase(coord)
+	_queue_mutex.unlock()
+
 	if _chunk_view_map.has(coord):
 		var view: ChunkView = _chunk_view_map[coord]
 		view.queue_free()
@@ -274,6 +324,14 @@ func set_block(world_voxel: Vector3i, new_block_id: int) -> void:
 
 	if not has_chunk or target_data == null:
 		return
+
+	# If the chunk only has surface shell generated, fill subsurface on-demand so player never breaks into a void
+	if target_data.is_surface_only():
+		generator.fill_subsurface(target_data)
+		_queue_mutex.lock()
+		_pending_subsurface_coords.erase(chunk_coord)
+		_subsurface_queue.erase(chunk_coord)
+		_queue_mutex.unlock()
 
 	var local_coord: Vector3i = VoxelCoordinates.voxel_coord_to_local_coord(world_voxel)
 	var old_id: int = target_data.get_block(local_coord)

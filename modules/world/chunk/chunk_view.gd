@@ -32,7 +32,8 @@ func _create_child_nodes_if_needed() -> void:
 		add_child(collision_shape)
 
 ## Updates the chunk's visual mesh and physics collision body.
-func update_mesh_and_collision(new_mesh: ArrayMesh) -> void:
+## Accepts an optional prebaked Shape3D (baked off-thread) to eliminate main-thread freezing.
+func update_mesh_and_collision(new_mesh: ArrayMesh, prebaked_shape: Shape3D = null) -> void:
 	_create_child_nodes_if_needed()
 
 	if new_mesh == null:
@@ -41,5 +42,8 @@ func update_mesh_and_collision(new_mesh: ArrayMesh) -> void:
 		return
 
 	mesh_instance.mesh = new_mesh
-	var trimesh_shape: ConcavePolygonShape3D = new_mesh.create_trimesh_shape()
-	collision_shape.shape = trimesh_shape
+	if prebaked_shape != null:
+		collision_shape.shape = prebaked_shape
+	else:
+		var trimesh_shape: ConcavePolygonShape3D = new_mesh.create_trimesh_shape()
+		collision_shape.shape = trimesh_shape
