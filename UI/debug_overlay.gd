@@ -14,12 +14,15 @@ const BG_PANEL_COLOR: Color = Color(0.08, 0.08, 0.1, 0.75)
 var time_since_last_update: float = 0.0
 var last_player_world_pos: Vector3 = Vector3.ZERO
 var label_telemetry: Label = null
+var loaded_chunk_count: int = 0
 
 func _ready() -> void:
 	label_telemetry = $MarginContainer/PanelContainer/TelemetryLabel as Label
 
 	if EventBus != null:
 		EventBus.player_position_updated.connect(_on_player_position_updated)
+		EventBus.chunk_loaded.connect(_on_chunk_loaded)
+		EventBus.chunk_unloaded.connect(_on_chunk_unloaded)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_debug"):
@@ -52,6 +55,7 @@ func _refresh_telemetry_display() -> void:
 		"Player Pos: (%.1f, %.1f, %.1f)" % [last_player_world_pos.x, last_player_world_pos.y, last_player_world_pos.z],
 		"Voxel Coord: (%d, %d, %d)" % [player_voxel.x, player_voxel.y, player_voxel.z],
 		"Chunk Coord: (%d, %d, %d)" % [player_chunk.x, player_chunk.y, player_chunk.z],
+		"Loaded Chunks: %d" % loaded_chunk_count,
 		"Chunk Volume: %d voxels" % Constants.CHUNK_VOXEL_VOLUME,
 		"Controls: WASD=Move, Space=Jump, Shift=Sprint, LMB=Mine, RMB=Place, F3=Debug, Esc=Cursor"
 	]
@@ -60,3 +64,9 @@ func _refresh_telemetry_display() -> void:
 
 func _on_player_position_updated(new_pos: Vector3) -> void:
 	last_player_world_pos = new_pos
+
+func _on_chunk_loaded(_coord: Vector3i) -> void:
+	loaded_chunk_count += 1
+
+func _on_chunk_unloaded(_coord: Vector3i) -> void:
+	loaded_chunk_count = maxi(0, loaded_chunk_count - 1)

@@ -6,6 +6,7 @@ const TestBlockRegistryScript = preload("res://tests/unit/test_block_registry.gd
 const TestChunkDataScript = preload("res://tests/unit/test_chunk_data.gd")
 const TestRampBlocksScript = preload("res://tests/unit/test_ramp_blocks.gd")
 const TestTerrainGeneratorScript = preload("res://tests/unit/test_terrain_generator.gd")
+const TestWorkerPoolScript = preload("res://tests/unit/test_worker_pool.gd")
 
 func _ready() -> void:
 	Logger.info("Starting test suite execution...", "TestRunner")
@@ -47,8 +48,15 @@ func _ready() -> void:
 		Logger.error("[FAIL] TestTerrainGenerator failed.", "TestRunner")
 		success = false
 
+	# Test 6: Worker Thread Pool
+	if TestWorkerPoolScript.run_all():
+		Logger.info("[PASS] TestWorkerPool passed successfully.", "TestRunner")
+	else:
+		Logger.error("[FAIL] TestWorkerPool failed.", "TestRunner")
+		success = false
+
 	if success:
-		Logger.info("ALL SUITE TESTS PASSED (5/5)", "TestRunner")
+		Logger.info("ALL SUITE TESTS PASSED (6/6)", "TestRunner")
 	else:
 		Logger.error("SOME TESTS FAILED", "TestRunner")
 

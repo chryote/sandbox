@@ -9,10 +9,27 @@ var registry: BlockRegistry = null
 var generator: TerrainGenerator = null
 
 ## -----------------------------------------------------------------------------
-## Internal Storage
+## Internal Storage & Concurrency
 ## -----------------------------------------------------------------------------
 var _chunk_data_map: Dictionary = {}   # Vector3i -> ChunkData
 var _chunk_view_map: Dictionary = {}   # Vector3i -> ChunkView
+var _last_player_chunk: Vector3i = Vector3i(999999, 999999, 999999)
+
+## Worker thread queue & synchronization
+var _data_mutex: Mutex = Mutex.new()
+var _queue_mutex: Mutex = Mutex.new()
+var _results_mutex: Mutex = Mutex.new()
+
+var _worker_queue: Array[Vector3i] = []      # Pending coordinates to generate
+var _pending_coords: Dictionary = {}         # Vector3i -> bool (currently queued or processing)
+var _completed_queue: Array[Dictionary] = [] # Completed [{ "coord": Vector3i, "mesh": ArrayMesh }]
+
+var _is_worker_running: bool = false
+var _stop_worker: bool = false
+var _current_task_id: int = -1
+
+## Main-thread budget: max completed chunk meshes to attach per frame to maintain steady 60+ FPS
+const MAX_CHUNKS_APPLIED_PER_FRAME: int = 2
 
 func _ready() -> void:
 	if config == null:
@@ -24,17 +41,38 @@ func _ready() -> void:
 	# Connect to decoupled EventBus modification requests
 	if EventBus != null:
 		EventBus.block_modify_requested.connect(_on_block_modify_requested)
-		Logger.info("ChunkManager initialized and bound to EventBus.", "WorldGen")
+		EventBus.player_position_updated.connect(_on_player_position_updated)
+		Logger.info("ChunkManager initialized with background WorkerThreadPool pipeline.", "WorldGen")
 
-	# Initial world generation around origin (chunk 0,0,0)
-	load_chunks_around_coord(Vector3i.ZERO, config.load_radius_chunks)
+	# Initial world generation:
+	# Synchronously generate immediate spawn radius (radius 2 = 25 chunks) so player spawns on solid ground
+	var initial_sync_radius: int = mini(2, config.load_radius_chunks)
+	load_chunks_around_coord(Vector3i.ZERO, initial_sync_radius, true)
+	_last_player_chunk = Vector3i.ZERO
+
+	# Asynchronously dispatch remaining outer radius chunks to the background worker pipeline
+	if config.load_radius_chunks > initial_sync_radius:
+		load_chunks_around_coord(Vector3i.ZERO, config.load_radius_chunks, false)
+
+func _process(_delta: float) -> void:
+	_check_worker_status()
+	_apply_completed_chunk_meshes()
+
+func _exit_tree() -> void:
+	_queue_mutex.lock()
+	_stop_worker = true
+	var task_id: int = _current_task_id
+	_queue_mutex.unlock()
+
+	if task_id != -1:
+		WorkerThreadPool.wait_for_task_completion(task_id)
 
 ## -----------------------------------------------------------------------------
-## Chunk Loading & Lifecycle
+## Threaded Chunk Loading Pipeline
 ## -----------------------------------------------------------------------------
-## Generates and loads chunks in a square radius around a central chunk coordinate.
-func load_chunks_around_coord(center_coord: Vector3i, radius_chunks: int) -> void:
-	var newly_loaded_coords: Array[Vector3i] = []
+## Enqueues or immediately loads chunks in a square radius around a central chunk coordinate.
+func load_chunks_around_coord(center_coord: Vector3i, radius_chunks: int, is_synchronous: bool = false) -> void:
+	var needed_coords: Array[Vector3i] = []
 
 	for offset_z: int in range(-radius_chunks, radius_chunks + 1):
 		for offset_x: int in range(-radius_chunks, radius_chunks + 1):
@@ -44,30 +82,119 @@ func load_chunks_around_coord(center_coord: Vector3i, radius_chunks: int) -> voi
 				center_coord.z + offset_z
 			)
 
-			if not _chunk_data_map.has(target_coord):
-				_generate_chunk_data_only(target_coord)
-				newly_loaded_coords.append(target_coord)
+			_data_mutex.lock()
+			var already_has_data: bool = _chunk_data_map.has(target_coord)
+			_data_mutex.unlock()
 
-	# After data is generated for the entire radius, mesh all newly created chunks
-	# (ensuring cross-boundary face culling has access to neighboring chunk data)
-	for coord: Vector3i in newly_loaded_coords:
-		_create_and_mesh_chunk_view(coord)
+			_queue_mutex.lock()
+			var already_pending: bool = _pending_coords.has(target_coord)
+			_queue_mutex.unlock()
 
-## Generates voxel data for a single chunk coordinate without meshing yet.
-func _generate_chunk_data_only(coord: Vector3i) -> ChunkData:
-	var data: ChunkData = ChunkData.new(coord)
-	generator.generate_chunk_data(data)
-	_chunk_data_map[coord] = data
-	return data
+			if not already_has_data and not already_pending:
+				needed_coords.append(target_coord)
 
-## Meshes a chunk and attaches its visual/physics node to the scene tree.
-func _create_and_mesh_chunk_view(coord: Vector3i) -> void:
-	if not _chunk_data_map.has(coord):
+	if needed_coords.is_empty():
 		return
 
-	var data: ChunkData = _chunk_data_map[coord]
-	var view: ChunkView = null
+	# Sort requested coords closest to center so immediate surroundings load first
+	needed_coords.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return (a - center_coord).length_squared() < (b - center_coord).length_squared()
+	)
 
+	if is_synchronous:
+		for coord: Vector3i in needed_coords:
+			_generate_chunk_data_only(coord)
+		for coord: Vector3i in needed_coords:
+			_create_and_mesh_chunk_view(coord)
+	else:
+		_queue_mutex.lock()
+		for coord: Vector3i in needed_coords:
+			_pending_coords[coord] = true
+			_worker_queue.append(coord)
+
+		# Re-sort entire worker queue by distance to player center
+		_worker_queue.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+			return (a - center_coord).length_squared() < (b - center_coord).length_squared()
+		)
+
+		if not _is_worker_running and not _worker_queue.is_empty():
+			_is_worker_running = true
+			_current_task_id = WorkerThreadPool.add_task(Callable(self, "_background_worker_loop"))
+		_queue_mutex.unlock()
+
+## Background worker thread loop: continuously processes queued chunks off the main thread
+func _background_worker_loop() -> void:
+	while true:
+		_queue_mutex.lock()
+		if _stop_worker or _worker_queue.is_empty():
+			_is_worker_running = false
+			_queue_mutex.unlock()
+			break
+
+		var coord: Vector3i = _worker_queue.pop_front()
+		_queue_mutex.unlock()
+
+		_thread_generate_and_mesh(coord)
+
+## Generates terrain data and builds ArrayMesh completely off-thread
+func _thread_generate_and_mesh(coord: Vector3i) -> void:
+	var data: ChunkData = ChunkData.new(coord)
+	generator.generate_chunk_data(data)
+
+	_data_mutex.lock()
+	_chunk_data_map[coord] = data
+	_data_mutex.unlock()
+
+	var mesh: ArrayMesh = ChunkMesher.build_chunk_mesh(
+		data,
+		registry,
+		Callable(self, "get_block")
+	)
+
+	_results_mutex.lock()
+	_completed_queue.append({ "coord": coord, "mesh": mesh })
+	_results_mutex.unlock()
+
+## Checks if the worker task has completed and cleans up its handle
+func _check_worker_status() -> void:
+	_queue_mutex.lock()
+	if not _is_worker_running and _current_task_id != -1:
+		if WorkerThreadPool.is_task_completed(_current_task_id):
+			WorkerThreadPool.wait_for_task_completion(_current_task_id)
+			_current_task_id = -1
+
+			# If new tasks arrived while finishing, restart the worker loop
+			if not _worker_queue.is_empty() and not _stop_worker:
+				_is_worker_running = true
+				_current_task_id = WorkerThreadPool.add_task(Callable(self, "_background_worker_loop"))
+	_queue_mutex.unlock()
+
+## Applies a budgeted number of completed chunk meshes to the SceneTree per frame
+func _apply_completed_chunk_meshes() -> void:
+	_results_mutex.lock()
+	if _completed_queue.is_empty():
+		_results_mutex.unlock()
+		return
+
+	var chunks_to_apply: Array[Dictionary] = []
+	var count_to_pop: int = mini(MAX_CHUNKS_APPLIED_PER_FRAME, _completed_queue.size())
+	for i: int in range(count_to_pop):
+		chunks_to_apply.append(_completed_queue.pop_front())
+	_results_mutex.unlock()
+
+	for item: Dictionary in chunks_to_apply:
+		var coord: Vector3i = item["coord"]
+		var mesh: ArrayMesh = item["mesh"]
+
+		_queue_mutex.lock()
+		_pending_coords.erase(coord)
+		_queue_mutex.unlock()
+
+		_apply_chunk_view(coord, mesh)
+
+## Attaches or updates a ChunkView node with its mesh and physics collider
+func _apply_chunk_view(coord: Vector3i, mesh: ArrayMesh) -> void:
+	var view: ChunkView = null
 	if _chunk_view_map.has(coord):
 		view = _chunk_view_map[coord]
 	else:
@@ -75,15 +202,36 @@ func _create_and_mesh_chunk_view(coord: Vector3i) -> void:
 		add_child(view)
 		_chunk_view_map[coord] = view
 
+	view.update_mesh_and_collision(mesh)
+
+	if EventBus != null:
+		EventBus.chunk_loaded.emit(coord)
+
+## Generates voxel data for a single chunk coordinate synchronously.
+func _generate_chunk_data_only(coord: Vector3i) -> ChunkData:
+	var data: ChunkData = ChunkData.new(coord)
+	generator.generate_chunk_data(data)
+	_data_mutex.lock()
+	_chunk_data_map[coord] = data
+	_data_mutex.unlock()
+	return data
+
+## Meshes a chunk synchronously on the main thread (used for startup and player block edits).
+func _create_and_mesh_chunk_view(coord: Vector3i) -> void:
+	_data_mutex.lock()
+	var has_data: bool = _chunk_data_map.has(coord)
+	var data: ChunkData = _chunk_data_map.get(coord, null)
+	_data_mutex.unlock()
+
+	if not has_data or data == null:
+		return
+
 	var mesh: ArrayMesh = ChunkMesher.build_chunk_mesh(
 		data,
 		registry,
 		Callable(self, "get_block")
 	)
-	view.update_mesh_and_collision(mesh)
-
-	if EventBus != null:
-		EventBus.chunk_loaded.emit(coord)
+	_apply_chunk_view(coord, mesh)
 
 ## Unloads and frees a chunk at the specified coordinate.
 func unload_chunk(coord: Vector3i) -> void:
@@ -92,8 +240,10 @@ func unload_chunk(coord: Vector3i) -> void:
 		view.queue_free()
 		_chunk_view_map.erase(coord)
 
+	_data_mutex.lock()
 	if _chunk_data_map.has(coord):
 		_chunk_data_map.erase(coord)
+	_data_mutex.unlock()
 
 	if EventBus != null:
 		EventBus.chunk_unloaded.emit(coord)
@@ -101,24 +251,31 @@ func unload_chunk(coord: Vector3i) -> void:
 ## -----------------------------------------------------------------------------
 ## Voxel Query & Modification
 ## -----------------------------------------------------------------------------
-## Returns the block ID at the specified world voxel coordinate.
+## Returns the block ID at the specified world voxel coordinate. Thread-safe.
 func get_block(world_voxel: Vector3i) -> int:
 	var chunk_coord: Vector3i = VoxelCoordinates.voxel_coord_to_chunk_coord(world_voxel)
-	if not _chunk_data_map.has(chunk_coord):
+	_data_mutex.lock()
+	var chunk_data: ChunkData = _chunk_data_map.get(chunk_coord, null)
+	_data_mutex.unlock()
+
+	if chunk_data == null:
 		return Constants.BLOCK_ID_AIR
 
 	var local_coord: Vector3i = VoxelCoordinates.voxel_coord_to_local_coord(world_voxel)
-	var chunk_data: ChunkData = _chunk_data_map[chunk_coord]
 	return chunk_data.get_block(local_coord)
 
 ## Modifies a block at the specified world voxel coordinate and updates meshes.
 func set_block(world_voxel: Vector3i, new_block_id: int) -> void:
 	var chunk_coord: Vector3i = VoxelCoordinates.voxel_coord_to_chunk_coord(world_voxel)
-	if not _chunk_data_map.has(chunk_coord):
+	_data_mutex.lock()
+	var has_chunk: bool = _chunk_data_map.has(chunk_coord)
+	var target_data: ChunkData = _chunk_data_map.get(chunk_coord, null)
+	_data_mutex.unlock()
+
+	if not has_chunk or target_data == null:
 		return
 
 	var local_coord: Vector3i = VoxelCoordinates.voxel_coord_to_local_coord(world_voxel)
-	var target_data: ChunkData = _chunk_data_map[chunk_coord]
 	var old_id: int = target_data.get_block(local_coord)
 
 	if old_id == new_block_id:
@@ -136,11 +293,14 @@ func set_block(world_voxel: Vector3i, new_block_id: int) -> void:
 ## Returns true if the voxel at world_voxel is transparent or resides in an unloaded chunk.
 func is_voxel_transparent(world_voxel: Vector3i) -> bool:
 	var chunk_coord: Vector3i = VoxelCoordinates.voxel_coord_to_chunk_coord(world_voxel)
-	if not _chunk_data_map.has(chunk_coord):
+	_data_mutex.lock()
+	var chunk_data: ChunkData = _chunk_data_map.get(chunk_coord, null)
+	_data_mutex.unlock()
+
+	if chunk_data == null:
 		return true
 
 	var local_coord: Vector3i = VoxelCoordinates.voxel_coord_to_local_coord(world_voxel)
-	var chunk_data: ChunkData = _chunk_data_map[chunk_coord]
 	var block_id: int = chunk_data.get_block(local_coord)
 	return registry.is_transparent(block_id)
 
@@ -162,6 +322,15 @@ func _remesh_neighbors_if_boundary(chunk_coord: Vector3i, local_coord: Vector3i)
 ## EventBus receiver for decoupled block modification requests
 func _on_block_modify_requested(world_voxel_pos: Vector3i, new_block_id: int) -> void:
 	set_block(world_voxel_pos, new_block_id)
+
+## EventBus receiver for player movement, generating new chunks asynchronously
+func _on_player_position_updated(world_pos: Vector3) -> void:
+	var player_voxel: Vector3i = VoxelCoordinates.world_pos_to_voxel_coord(world_pos)
+	var current_chunk: Vector3i = VoxelCoordinates.voxel_coord_to_chunk_coord(player_voxel)
+
+	if current_chunk != _last_player_chunk:
+		_last_player_chunk = current_chunk
+		load_chunks_around_coord(current_chunk, config.load_radius_chunks, false)
 
 ## Returns count of currently active chunk views.
 func get_loaded_chunk_count() -> int:

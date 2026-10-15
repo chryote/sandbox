@@ -569,7 +569,7 @@ const BLOCK_ID_SAND_OUTER_CORNER_SE: int = 55
 ## World Generation Defaults
 ## -----------------------------------------------------------------------------
 const DEFAULT_WORLD_SEED: int = 1337
-const DEFAULT_LOAD_RADIUS_CHUNKS: int = 2
+const DEFAULT_LOAD_RADIUS_CHUNKS: int = 4
 const DEFAULT_TERRAIN_BASE_HEIGHT: int = 10
 const DEFAULT_TERRAIN_HEIGHT_VARIATION: int = 12
 const DEFAULT_DIRT_LAYER_THICKNESS: int = 3
