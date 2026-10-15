@@ -259,8 +259,29 @@ func generate_surface_shell(chunk_data: ChunkData) -> void:
 	var min_h: int = mini(mini(h00, h10), mini(h01, mini(h11, h_mid)))
 	var max_h: int = maxi(maxi(h00, h10), maxi(h01, maxi(h11, h_mid)))
 
-	# Detect subterranean sub-chunk (entirely below ground surface, occluded from sky view)
-	chunk_data.is_subterranean = (chunk_max_y < min_h)
+	# Detect subterranean sub-chunk (entirely below ground surface and sealed on all sides)
+	if chunk_max_y >= min_h:
+		chunk_data.is_subterranean = false
+	else:
+		# Check if any adjacent neighbor drops below chunk_max_y, exposing side faces to air
+		var is_sealed: bool = true
+		var neighbor_sample_offsets: Array[Vector2i] = [
+			# Immediate border points along each cardinal side
+			Vector2i(-1, 0), Vector2i(-1, Constants.CHUNK_DEPTH_VOXELS / 2), Vector2i(-1, Constants.CHUNK_DEPTH_VOXELS - 1),
+			Vector2i(Constants.CHUNK_WIDTH_VOXELS, 0), Vector2i(Constants.CHUNK_WIDTH_VOXELS, Constants.CHUNK_DEPTH_VOXELS / 2), Vector2i(Constants.CHUNK_WIDTH_VOXELS, Constants.CHUNK_DEPTH_VOXELS - 1),
+			Vector2i(0, -1), Vector2i(Constants.CHUNK_WIDTH_VOXELS / 2, -1), Vector2i(Constants.CHUNK_WIDTH_VOXELS - 1, -1),
+			Vector2i(0, Constants.CHUNK_DEPTH_VOXELS), Vector2i(Constants.CHUNK_WIDTH_VOXELS / 2, Constants.CHUNK_DEPTH_VOXELS), Vector2i(Constants.CHUNK_WIDTH_VOXELS - 1, Constants.CHUNK_DEPTH_VOXELS),
+			# Surrounding neighbor chunk centers
+			Vector2i(-Constants.CHUNK_WIDTH_VOXELS / 2, Constants.CHUNK_DEPTH_VOXELS / 2),
+			Vector2i(Constants.CHUNK_WIDTH_VOXELS + Constants.CHUNK_WIDTH_VOXELS / 2, Constants.CHUNK_DEPTH_VOXELS / 2),
+			Vector2i(Constants.CHUNK_WIDTH_VOXELS / 2, -Constants.CHUNK_DEPTH_VOXELS / 2),
+			Vector2i(Constants.CHUNK_WIDTH_VOXELS / 2, Constants.CHUNK_DEPTH_VOXELS + Constants.CHUNK_DEPTH_VOXELS / 2)
+		]
+		for offset: Vector2i in neighbor_sample_offsets:
+			if get_terrain_height_at(chunk_origin_x + offset.x, chunk_origin_z + offset.y) <= chunk_max_y:
+				is_sealed = false
+				break
+		chunk_data.is_subterranean = is_sealed
 
 	# 1. Sky Chunk (100% Air): entire sub-chunk is above terrain surface and shims
 	if chunk_origin_y > max_h + 1:
@@ -268,8 +289,8 @@ func generate_surface_shell(chunk_data: ChunkData) -> void:
 		chunk_data.gen_state = ChunkData.GenState.FULL
 		return
 
-	# 2. Deep Solid Stone (100% Stone): entire sub-chunk is below dirt layer and above bedrock
-	if chunk_max_y < (min_h - biome.subsurface_depth_layers) and chunk_origin_y > BEDROCK_LAYER_Y:
+	# 2. Deep Solid Stone (100% Stone): entire sub-chunk is sealed, below dirt layer and above bedrock
+	if chunk_data.is_subterranean and chunk_max_y < (min_h - biome.subsurface_depth_layers) and chunk_origin_y > BEDROCK_LAYER_Y:
 		chunk_data.set_homogeneous(biome.deep_block_id)
 		chunk_data.gen_state = ChunkData.GenState.FULL
 		return

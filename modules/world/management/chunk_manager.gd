@@ -589,8 +589,9 @@ func _on_player_position_updated(world_pos: Vector3) -> void:
 			update_lod_around_col(Vector2i(current_chunk.x, current_chunk.z), false)
 
 	# Update cave / subterranean occlusion based on player altitude vs surface datum
+	# Use player's upper body / head altitude (player_voxel.y + 1) to prevent false triggers on surface slopes and ramps
 	var ground_h: int = generator.get_terrain_height_at(player_voxel.x, player_voxel.z)
-	var player_underground_now: bool = player_voxel.y < ground_h
+	var player_underground_now: bool = (player_voxel.y + 1) < ground_h
 	if player_underground_now != _is_player_underground:
 		_is_player_underground = player_underground_now
 		_update_subterranean_occlusion()
