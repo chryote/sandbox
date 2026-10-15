@@ -115,6 +115,43 @@ func _resolve_inner_corner_offset(
 
 	return -1
 
+## Resolves whether an empty voxel at clamped_height + 1 is an outer convex corner bridging between two inner corners
+## or adjacent diagonal elevation step.
+func _resolve_outer_corner_offset(
+	diff_n: int, diff_s: int, diff_e: int, diff_w: int,
+	h_nw: int, h_ne: int, h_sw: int, h_se: int,
+	clamped_height: int
+) -> int:
+	var h: int = clamped_height
+	# SE high (high point at SE, slopes down towards NW)
+	if h_se >= h + 1 and diff_s == 0 and diff_e == 0 and diff_n <= 0 and diff_w <= 0:
+		return 3 # OUTER_CORNER_SOUTH_EAST
+	# SW high (high point at SW, slopes down towards NE)
+	if h_sw >= h + 1 and diff_s == 0 and diff_w == 0 and diff_n <= 0 and diff_e <= 0:
+		return 2 # OUTER_CORNER_SOUTH_WEST
+	# NE high (high point at NE, slopes down towards SW)
+	if h_ne >= h + 1 and diff_n == 0 and diff_e == 0 and diff_s <= 0 and diff_w <= 0:
+		return 1 # OUTER_CORNER_NORTH_EAST
+	# NW high (high point at NW, slopes down towards SE)
+	if h_nw >= h + 1 and diff_n == 0 and diff_w == 0 and diff_s <= 0 and diff_e <= 0:
+		return 0 # OUTER_CORNER_NORTH_WEST
+
+	return -1
+
+## Resolves the registered block ID for an outer corner shape given the surface base material.
+func _get_outer_corner_block_id(surface_base_id: int, corner_offset: int) -> int:
+	match surface_base_id:
+		Constants.BLOCK_ID_GRASS:
+			return Constants.BLOCK_ID_GRASS_OUTER_CORNER_NW + corner_offset
+		Constants.BLOCK_ID_SAND:
+			return Constants.BLOCK_ID_SAND_OUTER_CORNER_NW + corner_offset
+		Constants.BLOCK_ID_STONE:
+			return Constants.BLOCK_ID_STONE_OUTER_CORNER_NW + corner_offset
+		Constants.BLOCK_ID_DIRT:
+			return Constants.BLOCK_ID_DIRT_OUTER_CORNER_NW + corner_offset
+		_:
+			return surface_base_id
+
 ## Resolves the registered block ID for an inner corner shape given the surface base material.
 func _get_inner_corner_block_id(surface_base_id: int, corner_offset: int) -> int:
 	match surface_base_id:
@@ -169,7 +206,6 @@ func _resolve_surface_block_id(
 		return _get_ramp_block_id(surface_base_id, drops[0])
 
 	# 2 or more drops (corners / diagonal steps): keep flat full block
-	# Prevents placing directional straight ramps whose vertical side walls stick out into open air.
 	return surface_base_id
 
 ## Fills a ChunkData buffer with terrain voxels according to the configuration.
@@ -197,13 +233,14 @@ func generate_chunk_data(chunk_data: ChunkData) -> void:
 			var diff_e: int = h_east - clamped_height
 			var diff_w: int = h_west - clamped_height
 
-			# Sample diagonal neighbor heights for inner corner detection
+			# Sample diagonal neighbor heights for corner detection
 			var h_nw: int = get_terrain_height_at(world_x - 1, world_z - 1)
 			var h_ne: int = get_terrain_height_at(world_x + 1, world_z - 1)
 			var h_sw: int = get_terrain_height_at(world_x - 1, world_z + 1)
 			var h_se: int = get_terrain_height_at(world_x + 1, world_z + 1)
 
 			var inner_offset: int = -1
+			var outer_offset: int = -1
 			if clamped_height + 1 < Constants.CHUNK_HEIGHT_VOXELS:
 				inner_offset = _resolve_inner_corner_offset(
 					diff_n, diff_s, diff_e, diff_w,
@@ -211,8 +248,15 @@ func generate_chunk_data(chunk_data: ChunkData) -> void:
 					clamped_height,
 					world_x, world_z
 				)
+				if inner_offset == -1:
+					outer_offset = _resolve_outer_corner_offset(
+						diff_n, diff_s, diff_e, diff_w,
+						h_nw, h_ne, h_sw, h_se,
+						clamped_height
+					)
 
 			var has_inner_corner: bool = (inner_offset != -1)
+			var has_outer_corner: bool = (outer_offset != -1)
 
 			for y: int in range(Constants.CHUNK_HEIGHT_VOXELS):
 				var local_pos: Vector3i = Vector3i(x, y, z)
@@ -221,19 +265,22 @@ func generate_chunk_data(chunk_data: ChunkData) -> void:
 					# Air above ground and slopes
 					chunk_data.set_block(local_pos, Constants.BLOCK_ID_AIR)
 				elif y == clamped_height + 1:
-					# Inner corner shim layer
+					# Corner shim layer
 					if has_inner_corner:
 						var inner_id: int = _get_inner_corner_block_id(biome.surface_block_id, inner_offset)
 						chunk_data.set_block(local_pos, inner_id)
+					elif has_outer_corner:
+						var outer_id: int = _get_outer_corner_block_id(biome.surface_block_id, outer_offset)
+						chunk_data.set_block(local_pos, outer_id)
 					else:
 						chunk_data.set_block(local_pos, Constants.BLOCK_ID_AIR)
 				elif y == BEDROCK_LAYER_Y:
 					# Indestructible bottom foundation
 					chunk_data.set_block(local_pos, biome.bedrock_block_id)
 				elif y == clamped_height:
-					# Surface layer (flat cube, directional ramp, or outer corner)
-					if has_inner_corner:
-						# Solid foundation below inner corner shim
+					# Surface layer (flat cube, directional ramp, or foundation under corner shim)
+					if has_inner_corner or has_outer_corner:
+						# Solid foundation below corner shim
 						chunk_data.set_block(local_pos, biome.subsurface_block_id)
 					else:
 						var surface_block_id: int = _resolve_surface_block_id(

@@ -118,6 +118,27 @@ static func run_all() -> bool:
 	)
 	if offset_unsuppressed != 0:
 		printerr("FAIL: Expected unsuppressed inner corner offset 0, got: %d" % offset_unsuppressed)
+	# 6. Test Outer Corner Slope Gap Filler Resolution
+	# Cell at (2, 2) height 10, SE diagonal neighbor at (3, 3) height 11, South and East at 10, North and West at 10.
+	# Should resolve to OUTER_CORNER_SOUTH_EAST (offset 3)
+	var outer_offset: int = mock_gen._resolve_outer_corner_offset(
+		0, 0, 0, 0,
+		10, 10, 10, 11,
+		10
+	)
+	if outer_offset != 3:
+		printerr("FAIL: Expected outer corner offset 3 (SE), got: %d" % outer_offset)
+		return false
+
+	# Test all 4 diagonal orientations
+	if mock_gen._resolve_outer_corner_offset(0, 0, 0, 0, 10, 10, 11, 10, 10) != 2:
+		printerr("FAIL: Expected outer corner offset 2 (SW)")
+		return false
+	if mock_gen._resolve_outer_corner_offset(0, 0, 0, 0, 10, 11, 10, 10, 10) != 1:
+		printerr("FAIL: Expected outer corner offset 1 (NE)")
+		return false
+	if mock_gen._resolve_outer_corner_offset(0, 0, 0, 0, 11, 10, 10, 10, 10) != 0:
+		printerr("FAIL: Expected outer corner offset 0 (NW)")
 		return false
 
 	return true
