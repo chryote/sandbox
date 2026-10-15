@@ -297,6 +297,17 @@ func _apply_chunk_view(coord: Vector3i, mesh: ArrayMesh, shape: Shape3D = null) 
 			EventBus.chunk_loaded.emit(coord)
 		return
 
+	# If the chunk coordinate is now outside the load radius from the current player chunk,
+	# discard it so we do not spawn distant floating island chunks that were delayed in the worker thread.
+	var dx: int = absi(coord.x - _last_player_chunk.x)
+	var dz: int = absi(coord.z - _last_player_chunk.z)
+	if maxi(dx, dz) > config.load_radius_chunks:
+		_data_mutex.lock()
+		if _chunk_data_map.has(coord):
+			_chunk_data_map.erase(coord)
+		_data_mutex.unlock()
+		return
+
 	var view: ChunkView = null
 	if _chunk_view_map.has(coord):
 		view = _chunk_view_map[coord]
@@ -377,6 +388,31 @@ func unload_chunk(coord: Vector3i) -> void:
 
 	if EventBus != null:
 		EventBus.chunk_unloaded.emit(coord)
+
+## Unloads all 3D chunks that are beyond load_radius_chunks from the center chunk.
+func _unload_distant_chunks(center_coord: Vector3i) -> void:
+	var load_r: int = config.load_radius_chunks
+	var coords_to_unload: Array[Vector3i] = []
+
+	# Check active 3D chunk views
+	for coord: Vector3i in _chunk_view_map:
+		var dx: int = absi(coord.x - center_coord.x)
+		var dz: int = absi(coord.z - center_coord.z)
+		if maxi(dx, dz) > load_r:
+			coords_to_unload.append(coord)
+
+	# Also check chunk data map for unviewed or unmeshed chunks outside radius
+	_data_mutex.lock()
+	for coord: Vector3i in _chunk_data_map:
+		var dx: int = absi(coord.x - center_coord.x)
+		var dz: int = absi(coord.z - center_coord.z)
+		if maxi(dx, dz) > load_r:
+			if not coords_to_unload.has(coord):
+				coords_to_unload.append(coord)
+	_data_mutex.unlock()
+
+	for coord: Vector3i in coords_to_unload:
+		unload_chunk(coord)
 
 ## -----------------------------------------------------------------------------
 ## Voxel Query & Modification
@@ -475,6 +511,13 @@ func _apply_lod_view(col: Vector2i, mesh: ArrayMesh) -> void:
 	_queue_mutex.unlock()
 
 	if mesh == null:
+		return
+
+	# If column is now outside lod_radius or inside load_radius from current player chunk, discard
+	var dx: int = absi(col.x - _last_player_chunk.x)
+	var dz: int = absi(col.y - _last_player_chunk.z)
+	var cheb_dist: int = maxi(dx, dz)
+	if cheb_dist <= config.load_radius_chunks or cheb_dist > config.lod_radius_chunks:
 		return
 
 	# If 3D chunk views already exist for this column, do not display LOD shell
@@ -585,6 +628,7 @@ func _on_player_position_updated(world_pos: Vector3) -> void:
 	if current_chunk != _last_player_chunk:
 		_last_player_chunk = current_chunk
 		load_chunks_around_coord(current_chunk, config.load_radius_chunks, false)
+		_unload_distant_chunks(current_chunk)
 		if config.enable_lod:
 			update_lod_around_col(Vector2i(current_chunk.x, current_chunk.z), false)
 
