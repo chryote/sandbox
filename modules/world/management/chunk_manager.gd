@@ -1,6 +1,9 @@
 class_name ChunkManager
 extends Node3D
 
+const LODHeightmapMesherScript = preload("res://modules/world/chunk/lod_heightmap_mesher.gd")
+const LODChunkViewScript = preload("res://modules/world/chunk/lod_chunk_view.gd")
+
 ## -----------------------------------------------------------------------------
 ## Configuration & Dependencies
 ## -----------------------------------------------------------------------------
@@ -22,9 +25,14 @@ var _results_mutex: Mutex = Mutex.new()
 
 var _surface_queue: Array[Vector3i] = []            # High-priority: surface shell generation & meshing
 var _subsurface_queue: Array[Vector3i] = []         # Low-priority / deferred: subterranean fill
+var _lod_queue: Array[Vector2i] = []                # Low-priority: distant 2D heightmap LOD generation
 var _pending_surface_coords: Dictionary = {}        # Vector3i -> bool
 var _pending_subsurface_coords: Dictionary = {}     # Vector3i -> bool
-var _completed_queue: Array[Dictionary] = []        # Completed [{ "coord": Vector3i, "mesh": ArrayMesh, "shape": Shape3D }]
+var _pending_lod_coords: Dictionary = {}            # Vector2i -> bool
+var _completed_queue: Array[Dictionary] = []        # Completed tasks payload
+
+var _lod_view_map: Dictionary = {}                  # Vector2i -> LODChunkView
+var _is_player_underground: bool = false
 
 var _is_worker_running: bool = false
 var _stop_worker: bool = false
@@ -56,11 +64,15 @@ func _ready() -> void:
 	if config.load_radius_chunks > initial_sync_radius:
 		load_chunks_around_coord(Vector3i.ZERO, config.load_radius_chunks, false)
 
+	# Asynchronously dispatch distant 2D heightmap LOD shells (Phase 4)
+	if config.enable_lod:
+		update_lod_around_col(Vector2i.ZERO, false)
+
 func _process(_delta: float) -> void:
 	_check_worker_status()
 	_apply_completed_chunk_meshes()
 
-func _exit_tree() -> void:
+func cleanup() -> void:
 	_queue_mutex.lock()
 	_stop_worker = true
 	var task_id: int = _current_task_id
@@ -68,6 +80,13 @@ func _exit_tree() -> void:
 
 	if task_id != -1:
 		WorkerThreadPool.wait_for_task_completion(task_id)
+		_queue_mutex.lock()
+		_current_task_id = -1
+		_is_worker_running = false
+		_queue_mutex.unlock()
+
+func _exit_tree() -> void:
+	cleanup()
 
 ## -----------------------------------------------------------------------------
 ## Threaded Chunk Loading Pipeline
@@ -120,13 +139,14 @@ func load_chunks_around_coord(center_coord: Vector3i, radius_chunks: int, is_syn
 			return (a - center_coord).length_squared() < (b - center_coord).length_squared()
 		)
 
-		if not _is_worker_running and (!_surface_queue.is_empty() or !_subsurface_queue.is_empty()):
+		if not _is_worker_running and (!_surface_queue.is_empty() or !_subsurface_queue.is_empty() or !_lod_queue.is_empty()):
 			_is_worker_running = true
 			_current_task_id = WorkerThreadPool.add_task(Callable(self, "_background_worker_loop"))
 		_queue_mutex.unlock()
 
 ## Background worker thread loop: continuously processes queued chunks off the main thread.
-## Always prioritizes visible surface chunks (Phase A) before deferred subsurface generation (Phase B).
+## Always prioritizes visible surface chunks (Phase A) before deferred subsurface generation (Phase B),
+## and processes distant 2D heightmap LOD shells as background filler.
 func _background_worker_loop() -> void:
 	while true:
 		_queue_mutex.lock()
@@ -136,24 +156,31 @@ func _background_worker_loop() -> void:
 			break
 
 		var coord: Vector3i = Vector3i.ZERO
-		var is_surface_task: bool = false
+		var lod_col: Vector2i = Vector2i.ZERO
+		var task_type: int = 0 # 1=surface, 2=subsurface, 3=lod
 
 		if not _surface_queue.is_empty():
 			coord = _surface_queue.pop_front()
-			is_surface_task = true
+			task_type = 1
 		elif not _subsurface_queue.is_empty():
 			coord = _subsurface_queue.pop_front()
-			is_surface_task = false
+			task_type = 2
+		elif not _lod_queue.is_empty():
+			lod_col = _lod_queue.pop_front()
+			task_type = 3
 		else:
 			_is_worker_running = false
 			_queue_mutex.unlock()
 			break
 		_queue_mutex.unlock()
 
-		if is_surface_task:
-			_thread_generate_surface_and_mesh(coord)
-		else:
-			_thread_fill_subsurface(coord)
+		match task_type:
+			1:
+				_thread_generate_surface_and_mesh(coord)
+			2:
+				_thread_fill_subsurface(coord)
+			3:
+				_thread_generate_lod(lod_col)
 
 ## Phase A: Generates surface shell and builds ArrayMesh and ConcavePolygonShape3D completely off-thread.
 func _thread_generate_surface_and_mesh(coord: Vector3i) -> void:
@@ -199,6 +226,22 @@ func _thread_fill_subsurface(coord: Vector3i) -> void:
 	_pending_subsurface_coords.erase(coord)
 	_queue_mutex.unlock()
 
+## Generates lightweight 2D quad mesh for distant chunk columns completely off-thread.
+func _thread_generate_lod(col: Vector2i) -> void:
+	var lod_mesh: ArrayMesh = LODHeightmapMesherScript.build_column_lod_mesh(
+		col,
+		generator,
+		config.primary_biome,
+		registry
+	)
+	_results_mutex.lock()
+	_completed_queue.append({
+		"type": "lod",
+		"col": col,
+		"mesh": lod_mesh
+	})
+	_results_mutex.unlock()
+
 ## Checks if the worker task has completed and cleans up its handle
 func _check_worker_status() -> void:
 	_queue_mutex.lock()
@@ -208,7 +251,7 @@ func _check_worker_status() -> void:
 			_current_task_id = -1
 
 			# If new tasks arrived while finishing, restart the worker loop
-			if (!_surface_queue.is_empty() or !_subsurface_queue.is_empty()) and not _stop_worker:
+			if (!_surface_queue.is_empty() or !_subsurface_queue.is_empty() or !_lod_queue.is_empty()) and not _stop_worker:
 				_is_worker_running = true
 				_current_task_id = WorkerThreadPool.add_task(Callable(self, "_background_worker_loop"))
 	_queue_mutex.unlock()
@@ -227,15 +270,20 @@ func _apply_completed_chunk_meshes() -> void:
 	_results_mutex.unlock()
 
 	for item: Dictionary in chunks_to_apply:
-		var coord: Vector3i = item["coord"]
-		var mesh: ArrayMesh = item.get("mesh", null)
-		var shape: Shape3D = item.get("shape", null)
+		if item.get("type", "") == "lod":
+			var col: Vector2i = item["col"]
+			var mesh: ArrayMesh = item.get("mesh", null)
+			_apply_lod_view(col, mesh)
+		else:
+			var coord: Vector3i = item["coord"]
+			var mesh: ArrayMesh = item.get("mesh", null)
+			var shape: Shape3D = item.get("shape", null)
 
-		_queue_mutex.lock()
-		_pending_surface_coords.erase(coord)
-		_queue_mutex.unlock()
+			_queue_mutex.lock()
+			_pending_surface_coords.erase(coord)
+			_queue_mutex.unlock()
 
-		_apply_chunk_view(coord, mesh, shape)
+			_apply_chunk_view(coord, mesh, shape)
 
 ## Attaches or updates a ChunkView node with its mesh and physics collider.
 ## Skips allocating ChunkView instances for empty/homogeneous chunks that produce no geometry.
@@ -258,6 +306,22 @@ func _apply_chunk_view(coord: Vector3i, mesh: ArrayMesh, shape: Shape3D = null) 
 		_chunk_view_map[coord] = view
 
 	view.update_mesh_and_collision(mesh, shape)
+
+	# Subterranean cave occlusion: hide underground chunks while player is on surface
+	_data_mutex.lock()
+	var chunk_data: ChunkData = _chunk_data_map.get(coord, null)
+	_data_mutex.unlock()
+	if chunk_data != null:
+		view.is_subterranean = chunk_data.is_subterranean
+		if view.is_subterranean and not _is_player_underground and config.enable_cave_occlusion:
+			view.set_occluded(true)
+		else:
+			view.set_occluded(false)
+
+	# If a full 3D chunk view is active in this column, remove any distant 2D LOD shell
+	var col: Vector2i = Vector2i(coord.x, coord.z)
+	if _lod_view_map.has(col):
+		_remove_lod_view(col)
 
 	if EventBus != null:
 		EventBus.chunk_loaded.emit(coord)
@@ -403,7 +467,116 @@ func _remesh_neighbors_if_boundary(chunk_coord: Vector3i, local_coord: Vector3i)
 func _on_block_modify_requested(world_voxel_pos: Vector3i, new_block_id: int) -> void:
 	set_block(world_voxel_pos, new_block_id)
 
-## EventBus receiver for player movement, generating new chunks asynchronously
+## Attaches or updates a distant 2D LOD heightmap chunk view
+func _apply_lod_view(col: Vector2i, mesh: ArrayMesh) -> void:
+	_queue_mutex.lock()
+	_pending_lod_coords.erase(col)
+	_queue_mutex.unlock()
+
+	if mesh == null:
+		return
+
+	# If 3D chunk views already exist for this column, do not display LOD shell
+	for y: int in range(config.min_chunk_y, config.max_chunk_y + 1):
+		if _chunk_view_map.has(Vector3i(col.x, y, col.y)):
+			return
+
+	var lod_view = null
+	if _lod_view_map.has(col):
+		lod_view = _lod_view_map[col]
+	else:
+		lod_view = LODChunkViewScript.new(col)
+		add_child(lod_view)
+		_lod_view_map[col] = lod_view
+
+	lod_view.set_mesh(mesh)
+
+## Removes and frees an LOD chunk view
+func _remove_lod_view(col: Vector2i) -> void:
+	if _lod_view_map.has(col):
+		var old_view = _lod_view_map[col]
+		_lod_view_map.erase(col)
+		old_view.queue_free()
+
+## Enqueues or builds distant 2D heightmap LOD shells between load_radius and lod_radius
+func update_lod_around_col(center_col: Vector2i, is_synchronous: bool = false) -> void:
+	if not config.enable_lod:
+		return
+
+	var load_r: int = config.load_radius_chunks
+	var lod_r: int = config.lod_radius_chunks
+	var load_r_sq: int = load_r * load_r
+	var lod_r_sq: int = lod_r * lod_r
+
+	var needed_cols: Array[Vector2i] = []
+
+	for dz: int in range(-lod_r, lod_r + 1):
+		for dx: int in range(-lod_r, lod_r + 1):
+			var dist_sq: int = dx * dx + dz * dz
+			# Only columns strictly outside load_radius and within lod_radius
+			if dist_sq > load_r_sq and dist_sq <= lod_r_sq:
+				var target_col: Vector2i = Vector2i(center_col.x + dx, center_col.y + dz)
+
+				# Check if column already has an active 3D view
+				var has_3d: bool = false
+				for y: int in range(config.min_chunk_y, config.max_chunk_y + 1):
+					if _chunk_view_map.has(Vector3i(target_col.x, y, target_col.y)):
+						has_3d = true
+						break
+				if has_3d:
+					continue
+
+				_queue_mutex.lock()
+				var already_pending: bool = _pending_lod_coords.has(target_col)
+				_queue_mutex.unlock()
+
+				if not _lod_view_map.has(target_col) and not already_pending:
+					needed_cols.append(target_col)
+
+	# Clean up LOD views that moved out of bounds or inside load_radius
+	var cols_to_remove: Array[Vector2i] = []
+	for col: Vector2i in _lod_view_map:
+		var dx: int = col.x - center_col.x
+		var dz: int = col.y - center_col.y
+		var dist_sq: int = dx * dx + dz * dz
+		if dist_sq > lod_r_sq or dist_sq <= load_r_sq:
+			cols_to_remove.append(col)
+
+	for col: Vector2i in cols_to_remove:
+		_remove_lod_view(col)
+
+	if needed_cols.is_empty():
+		return
+
+	needed_cols.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return (a - center_col).length_squared() < (b - center_col).length_squared()
+	)
+
+	if is_synchronous:
+		for col: Vector2i in needed_cols:
+			var lod_mesh: ArrayMesh = LODHeightmapMesherScript.build_column_lod_mesh(
+				col, generator, config.primary_biome, registry
+			)
+			_apply_lod_view(col, lod_mesh)
+	else:
+		_queue_mutex.lock()
+		for col: Vector2i in needed_cols:
+			_pending_lod_coords[col] = true
+			_lod_queue.append(col)
+
+		if not _is_worker_running:
+			_is_worker_running = true
+			_current_task_id = WorkerThreadPool.add_task(Callable(self, "_background_worker_loop"))
+		_queue_mutex.unlock()
+
+## Updates visibility of all subterranean chunk views based on player altitude
+func _update_subterranean_occlusion() -> void:
+	for coord: Vector3i in _chunk_view_map:
+		var view: ChunkView = _chunk_view_map[coord]
+		if view.is_subterranean:
+			view.set_occluded(not _is_player_underground and config.enable_cave_occlusion)
+
+## EventBus receiver for player movement, updating chunks and occlusion
 func _on_player_position_updated(world_pos: Vector3) -> void:
 	var player_voxel: Vector3i = VoxelCoordinates.world_pos_to_voxel_coord(world_pos)
 	var current_chunk: Vector3i = VoxelCoordinates.voxel_coord_to_chunk_coord(player_voxel)
@@ -411,7 +584,25 @@ func _on_player_position_updated(world_pos: Vector3) -> void:
 	if current_chunk != _last_player_chunk:
 		_last_player_chunk = current_chunk
 		load_chunks_around_coord(current_chunk, config.load_radius_chunks, false)
+		if config.enable_lod:
+			update_lod_around_col(Vector2i(current_chunk.x, current_chunk.z), false)
+
+	# Update cave / subterranean occlusion based on player altitude vs surface datum
+	var ground_h: int = generator.get_terrain_height_at(player_voxel.x, player_voxel.z)
+	var player_underground_now: bool = player_voxel.y < ground_h
+	if player_underground_now != _is_player_underground:
+		_is_player_underground = player_underground_now
+		_update_subterranean_occlusion()
 
 ## Returns count of currently active chunk views.
 func get_loaded_chunk_count() -> int:
 	return _chunk_view_map.size()
+
+## Returns count of currently active distant LOD chunk views.
+func get_lod_chunk_count() -> int:
+	return _lod_view_map.size()
+
+## Returns true if the player is currently detected below the local terrain surface datum.
+func is_player_underground() -> bool:
+	return _is_player_underground
+

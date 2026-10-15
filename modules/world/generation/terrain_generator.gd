@@ -259,6 +259,9 @@ func generate_surface_shell(chunk_data: ChunkData) -> void:
 	var min_h: int = mini(mini(h00, h10), mini(h01, mini(h11, h_mid)))
 	var max_h: int = maxi(maxi(h00, h10), maxi(h01, maxi(h11, h_mid)))
 
+	# Detect subterranean sub-chunk (entirely below ground surface, occluded from sky view)
+	chunk_data.is_subterranean = (chunk_max_y < min_h)
+
 	# 1. Sky Chunk (100% Air): entire sub-chunk is above terrain surface and shims
 	if chunk_origin_y > max_h + 1:
 		chunk_data.set_homogeneous(Constants.BLOCK_ID_AIR)

@@ -24,6 +24,7 @@ var non_air_count: int = 0
 var gen_state: GenState = GenState.UNGENERATED
 var storage_type: StorageType = StorageType.VOXEL_BUFFER
 var homogeneous_block_id: int = Constants.BLOCK_ID_AIR
+var is_subterranean: bool = false
 
 func _init(p_chunk_coord: Vector3i = Vector3i.ZERO) -> void:
 	chunk_coord = p_chunk_coord
@@ -33,6 +34,7 @@ func _init(p_chunk_coord: Vector3i = Vector3i.ZERO) -> void:
 	gen_state = GenState.UNGENERATED
 	storage_type = StorageType.VOXEL_BUFFER
 	homogeneous_block_id = Constants.BLOCK_ID_AIR
+	is_subterranean = false
 
 func is_surface_only() -> bool:
 	return gen_state == GenState.SURFACE_ONLY

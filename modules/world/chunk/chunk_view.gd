@@ -7,15 +7,21 @@ extends StaticBody3D
 var chunk_coord: Vector3i = Vector3i.ZERO
 var mesh_instance: MeshInstance3D = null
 var collision_shape: CollisionShape3D = null
+var is_subterranean: bool = false
 
 func _init(p_chunk_coord: Vector3i = Vector3i.ZERO) -> void:
 	chunk_coord = p_chunk_coord
 	name = "Chunk_%d_%d_%d" % [chunk_coord.x, chunk_coord.y, chunk_coord.z]
 	collision_layer = 1
 	collision_mask = 0
+	is_subterranean = false
 
 	# Set position corresponding to chunk minimum corner
 	position = VoxelCoordinates.chunk_coord_to_world_pos(chunk_coord)
+
+## Toggles visibility for subterranean cave occlusion
+func set_occluded(occluded: bool) -> void:
+	visible = not occluded
 
 func _ready() -> void:
 	_create_child_nodes_if_needed()

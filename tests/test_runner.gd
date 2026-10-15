@@ -7,6 +7,7 @@ const TestChunkDataScript = preload("res://tests/unit/test_chunk_data.gd")
 const TestRampBlocksScript = preload("res://tests/unit/test_ramp_blocks.gd")
 const TestTerrainGeneratorScript = preload("res://tests/unit/test_terrain_generator.gd")
 const TestWorkerPoolScript = preload("res://tests/unit/test_worker_pool.gd")
+const TestLODAndOcclusionScript = preload("res://tests/unit/test_lod_and_occlusion.gd")
 
 func _ready() -> void:
 	Logger.info("Starting test suite execution...", "TestRunner")
@@ -55,10 +56,18 @@ func _ready() -> void:
 		Logger.error("[FAIL] TestWorkerPool failed.", "TestRunner")
 		success = false
 
+	# Test 7: LOD Heightmap & Cave Occlusion
+	if TestLODAndOcclusionScript.run_all():
+		Logger.info("[PASS] TestLODAndOcclusion passed successfully.", "TestRunner")
+	else:
+		Logger.error("[FAIL] TestLODAndOcclusion failed.", "TestRunner")
+		success = false
+
 	if success:
-		Logger.info("ALL SUITE TESTS PASSED (6/6)", "TestRunner")
+		Logger.info("ALL SUITE TESTS PASSED (7/7)", "TestRunner")
 	else:
 		Logger.error("SOME TESTS FAILED", "TestRunner")
 
 	await get_tree().process_frame
 	get_tree().quit(0 if success else 1)
+

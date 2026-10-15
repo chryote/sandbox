@@ -1,22 +1,2 @@
-[2026-10-15 13:25:03] [INFO] [Logger] Logger service initialized. Runtime logging directed to res://logs/app.log
-[2026-10-15 13:25:03] [INFO] [WorldGen] ChunkManager initialized with background WorkerThreadPool pipeline.
-[2026-10-15 13:27:22] [INFO] [Player] Emitted mine block request for: (255, 10, -400)
-[2026-10-15 13:27:22] [INFO] [Player] Emitted mine block request for: (256, 10, -400)
-[2026-10-15 13:27:23] [INFO] [Player] Emitted mine block request for: (256, 10, -399)
-[2026-10-15 13:27:23] [INFO] [Player] Emitted mine block request for: (255, 10, -399)
-[2026-10-15 13:27:24] [INFO] [Player] Emitted mine block request for: (256, 9, -399)
-[2026-10-15 13:27:25] [INFO] [Player] Emitted mine block request for: (255, 9, -399)
-[2026-10-15 13:27:26] [INFO] [Player] Emitted mine block request for: (256, 9, -400)
-[2026-10-15 13:27:26] [INFO] [Player] Emitted mine block request for: (255, 9, -400)
-[2026-10-15 13:27:27] [INFO] [Player] Emitted mine block request for: (255, 8, -400)
-[2026-10-15 13:27:27] [INFO] [Player] Emitted mine block request for: (256, 8, -400)
-[2026-10-15 13:27:28] [INFO] [Player] Emitted mine block request for: (256, 8, -399)
-[2026-10-15 13:27:30] [INFO] [Player] Emitted mine block request for: (255, 8, -399)
-[2026-10-15 13:27:33] [INFO] [Player] Emitted mine block request for: (255, 9, -401)
-[2026-10-15 13:27:33] [INFO] [Player] Emitted mine block request for: (256, 10, -401)
-[2026-10-15 13:27:34] [INFO] [Player] Emitted mine block request for: (255, 10, -401)
-[2026-10-15 13:27:35] [INFO] [Player] Emitted mine block request for: (255, 10, -402)
-[2026-10-15 13:27:40] [INFO] [Player] Emitted mine block request for: (255, 9, -398)
-[2026-10-15 13:27:40] [INFO] [Player] Emitted mine block request for: (255, 8, -398)
-[2026-10-15 13:27:41] [INFO] [Player] Emitted mine block request for: (256, 9, -398)
-[2026-10-15 13:27:41] [INFO] [Player] Emitted mine block request for: (256, 8, -398)
+[2026-10-15 13:40:03] [INFO] [Logger] Logger service initialized. Runtime logging directed to res://logs/app.log
+[2026-10-15 13:40:03] [INFO] [WorldGen] ChunkManager initialized with background WorkerThreadPool pipeline.
