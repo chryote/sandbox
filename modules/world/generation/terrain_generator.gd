@@ -115,26 +115,58 @@ func _resolve_inner_corner_offset(
 
 	return -1
 
+## Checks whether the cell at (cell_x, cell_z) contains solid geometry or a slope shim at target_y.
+func _cell_has_slope_or_wall_at(cell_x: int, cell_z: int, target_y: int) -> bool:
+	var h_cell: int = get_terrain_height_at(cell_x, cell_z)
+	if h_cell >= target_y:
+		return true
+	if h_cell == target_y - 1:
+		var dn: int = get_terrain_height_at(cell_x, cell_z - 1) - h_cell
+		var ds: int = get_terrain_height_at(cell_x, cell_z + 1) - h_cell
+		var de: int = get_terrain_height_at(cell_x + 1, cell_z) - h_cell
+		var dw: int = get_terrain_height_at(cell_x - 1, cell_z) - h_cell
+		var h_nw: int = get_terrain_height_at(cell_x - 1, cell_z - 1)
+		var h_ne: int = get_terrain_height_at(cell_x + 1, cell_z - 1)
+		var h_sw: int = get_terrain_height_at(cell_x - 1, cell_z + 1)
+		var h_se: int = get_terrain_height_at(cell_x + 1, cell_z + 1)
+		if _resolve_inner_corner_offset(dn, ds, de, dw, h_nw, h_ne, h_sw, h_se, h_cell, cell_x, cell_z) != -1:
+			return true
+	return false
+
 ## Resolves whether an empty voxel at clamped_height + 1 is an outer convex corner bridging between two inner corners
-## or adjacent diagonal elevation step.
+## or adjacent diagonal elevation step. Clears any outer corner that does not have a supporting neighbor on both of its side faces.
 func _resolve_outer_corner_offset(
 	diff_n: int, diff_s: int, diff_e: int, diff_w: int,
 	h_nw: int, h_ne: int, h_sw: int, h_se: int,
-	clamped_height: int
+	clamped_height: int,
+	world_x: int = 0, world_z: int = 0
 ) -> int:
 	var h: int = clamped_height
+	var target_y: int = h + 1
+
 	# SE high (high point at SE, slopes down towards NW)
+	# Both South (z+1) and East (x+1) side faces must have a neighbor at target_y
 	if h_se >= h + 1 and diff_s == 0 and diff_e == 0 and diff_n <= 0 and diff_w <= 0:
-		return 3 # OUTER_CORNER_SOUTH_EAST
+		if _cell_has_slope_or_wall_at(world_x, world_z + 1, target_y) and _cell_has_slope_or_wall_at(world_x + 1, world_z, target_y):
+			return 3 # OUTER_CORNER_SOUTH_EAST
+
 	# SW high (high point at SW, slopes down towards NE)
+	# Both South (z+1) and West (x-1) side faces must have a neighbor at target_y
 	if h_sw >= h + 1 and diff_s == 0 and diff_w == 0 and diff_n <= 0 and diff_e <= 0:
-		return 2 # OUTER_CORNER_SOUTH_WEST
+		if _cell_has_slope_or_wall_at(world_x, world_z + 1, target_y) and _cell_has_slope_or_wall_at(world_x - 1, world_z, target_y):
+			return 2 # OUTER_CORNER_SOUTH_WEST
+
 	# NE high (high point at NE, slopes down towards SW)
+	# Both North (z-1) and East (x+1) side faces must have a neighbor at target_y
 	if h_ne >= h + 1 and diff_n == 0 and diff_e == 0 and diff_s <= 0 and diff_w <= 0:
-		return 1 # OUTER_CORNER_NORTH_EAST
+		if _cell_has_slope_or_wall_at(world_x, world_z - 1, target_y) and _cell_has_slope_or_wall_at(world_x + 1, world_z, target_y):
+			return 1 # OUTER_CORNER_NORTH_EAST
+
 	# NW high (high point at NW, slopes down towards SE)
+	# Both North (z-1) and West (x-1) side faces must have a neighbor at target_y
 	if h_nw >= h + 1 and diff_n == 0 and diff_w == 0 and diff_s <= 0 and diff_e <= 0:
-		return 0 # OUTER_CORNER_NORTH_WEST
+		if _cell_has_slope_or_wall_at(world_x, world_z - 1, target_y) and _cell_has_slope_or_wall_at(world_x - 1, world_z, target_y):
+			return 0 # OUTER_CORNER_NORTH_WEST
 
 	return -1
 
@@ -252,7 +284,8 @@ func generate_chunk_data(chunk_data: ChunkData) -> void:
 					outer_offset = _resolve_outer_corner_offset(
 						diff_n, diff_s, diff_e, diff_w,
 						h_nw, h_ne, h_sw, h_se,
-						clamped_height
+						clamped_height,
+						world_x, world_z
 					)
 
 			var has_inner_corner: bool = (inner_offset != -1)

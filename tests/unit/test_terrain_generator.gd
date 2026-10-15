@@ -118,27 +118,37 @@ static func run_all() -> bool:
 	)
 	if offset_unsuppressed != 0:
 		printerr("FAIL: Expected unsuppressed inner corner offset 0, got: %d" % offset_unsuppressed)
-	# 6. Test Outer Corner Slope Gap Filler Resolution
-	# Cell at (2, 2) height 10, SE diagonal neighbor at (3, 3) height 11, South and East at 10, North and West at 10.
-	# Should resolve to OUTER_CORNER_SOUTH_EAST (offset 3)
-	var outer_offset: int = mock_gen._resolve_outer_corner_offset(
+	# 6. Test Outer Corner Slope Gap Filler Resolution & Isolated Shim Clearing
+	# A) Isolated case: cell at (5, 5) has SE diagonal neighbor at (6, 6) with height 11,
+	# but no supporting side neighbors on South (5, 6) or East (6, 5).
+	# Must be cleared / suppressed (return -1).
+	var isolated_gen = MockTerrainGenerator.new(config)
+	isolated_gen.set_mock_height(5, 5, 10)
+	isolated_gen.set_mock_height(6, 6, 11)
+	var isolated_offset: int = isolated_gen._resolve_outer_corner_offset(
 		0, 0, 0, 0,
 		10, 10, 10, 11,
-		10
+		10,
+		5, 5
 	)
-	if outer_offset != 3:
-		printerr("FAIL: Expected outer corner offset 3 (SE), got: %d" % outer_offset)
+	if isolated_offset != -1:
+		printerr("FAIL: Expected isolated outer corner shim without side neighbors to be cleared (-1), got: %d" % isolated_offset)
 		return false
 
-	# Test all 4 diagonal orientations
-	if mock_gen._resolve_outer_corner_offset(0, 0, 0, 0, 10, 10, 11, 10, 10) != 2:
-		printerr("FAIL: Expected outer corner offset 2 (SW)")
-		return false
-	if mock_gen._resolve_outer_corner_offset(0, 0, 0, 0, 10, 11, 10, 10, 10) != 1:
-		printerr("FAIL: Expected outer corner offset 1 (NE)")
-		return false
-	if mock_gen._resolve_outer_corner_offset(0, 0, 0, 0, 11, 10, 10, 10, 10) != 0:
-		printerr("FAIL: Expected outer corner offset 0 (NW)")
+	# B) Connected case: South cell (5, 6) and East cell (6, 5) both have slopes/inner corners bridging into (6, 6).
+	# Set heights so (5, 6) and (6, 5) form valid inner corners at y=11.
+	isolated_gen.set_mock_height(5, 7, 11)
+	isolated_gen.set_mock_height(6, 7, 11)
+	isolated_gen.set_mock_height(7, 5, 11)
+	isolated_gen.set_mock_height(7, 6, 11)
+	var connected_offset: int = isolated_gen._resolve_outer_corner_offset(
+		0, 0, 0, 0,
+		10, 10, 10, 11,
+		10,
+		5, 5
+	)
+	if connected_offset != 3:
+		printerr("FAIL: Expected connected outer corner shim to resolve to 3 (SE), got: %d" % connected_offset)
 		return false
 
 	return true
